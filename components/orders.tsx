@@ -31,6 +31,7 @@ interface Order {
   district: string
   address: string
   reference: string
+  referencePhone?: string
   shippingStatus?: string
   trackingStatus?: TrackingStatus
 }
@@ -58,6 +59,7 @@ export default function Orders() {
     {
       id: "1025",
       phone: "51964491182",
+      referencePhone: "51998877665",
       customer: "Andrés Iniesta",
       amount: "150.00",
       status: "pendiente",
@@ -69,6 +71,7 @@ export default function Orders() {
     {
       id: "1024",
       phone: "51987654321",
+      referencePhone: "51955443322",
       customer: "Juan Pérez",
       amount: "85.00",
       status: "pendiente",
@@ -80,6 +83,7 @@ export default function Orders() {
     {
       id: "1023",
       phone: "51912345678",
+      referencePhone: "51966554433",
       customer: "Luca Modric",
       amount: "210.00",
       status: "pendiente",
@@ -91,6 +95,7 @@ export default function Orders() {
     {
       id: "1022",
       phone: "51998765432",
+      referencePhone: "51977665544",
       customer: "Carlos García",
       amount: "320.00",
       status: "confirmado",
@@ -103,6 +108,7 @@ export default function Orders() {
     {
       id: "1021",
       phone: "51956789012",
+      referencePhone: "51944332211",
       customer: "María López",
       amount: "175.00",
       status: "confirmado",
@@ -115,6 +121,7 @@ export default function Orders() {
     {
       id: "1020",
       phone: "51943210987",
+      referencePhone: "51922113344",
       customer: "Antonio Silva",
       amount: "95.00",
       status: "rechazado",
@@ -524,6 +531,13 @@ export default function Orders() {
                 <label className="text-sm font-medium text-muted-foreground">Teléfono</label>
                 <p className="text-base font-medium text-foreground mt-1">
                   {orders.find((o) => o.id === selectedShipping)?.phone}
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Teléfono de Referencia</label>
+                <p className="text-base font-medium text-foreground mt-1">
+                  {orders.find((o) => o.id === selectedShipping)?.referencePhone || "No especificado"}
                 </p>
               </div>
 
