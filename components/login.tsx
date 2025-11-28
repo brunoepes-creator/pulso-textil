@@ -83,7 +83,7 @@ export default function Login({ onLogin }: LoginProps) {
             <Input
               id="email"
               type="email"
-              placeholder="megaropa@hotmail.com"
+              placeholder="usuario@gmail.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
