@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,6 +17,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+// 1. IMPORTANTE: Importamos el cliente de Supabase
+import { supabase } from "@/lib/supabase" 
 
 type OrderStatus = "pendiente" | "confirmado" | "rechazado"
 type TrackingStatus = "confirmado" | "enviado" | "recibido"
@@ -34,6 +36,16 @@ interface Order {
   referencePhone?: string
   shippingStatus?: string
   trackingStatus?: TrackingStatus
+  voucherUrl?: string
+}
+
+interface OrderDetail {
+  name: string
+  image: string
+  size: string
+  color: string
+  price: string
+  quantity: number
 }
 
 export default function Orders() {
@@ -55,82 +67,14 @@ export default function Orders() {
     orderId: "",
   })
 
-  const [orders, setOrders] = useState<Order[]>([
-    {
-      id: "1025",
-      phone: "51964491182",
-      referencePhone: "51998877665",
-      customer: "Andrés Iniesta",
-      amount: "150.00",
-      status: "pendiente",
-      date: "15/01/2025",
-      district: "Miraflores",
-      address: "Av. Larco 345, Edificio Los Alamos, Dpto 502",
-      reference: "Frente al parque Kennedy, edificio color beige",
-    },
-    {
-      id: "1024",
-      phone: "51987654321",
-      referencePhone: "51955443322",
-      customer: "Juan Pérez",
-      amount: "85.00",
-      status: "pendiente",
-      date: "14/01/2025",
-      district: "San Isidro",
-      address: "Calle Las Flores 123",
-      reference: "Casa verde con portón negro",
-    },
-    {
-      id: "1023",
-      phone: "51912345678",
-      referencePhone: "51966554433",
-      customer: "Luca Modric",
-      amount: "210.00",
-      status: "pendiente",
-      date: "13/01/2025",
-      district: "Surco",
-      address: "Av. Primavera 890",
-      reference: "Al costado del supermercado",
-    },
-    {
-      id: "1022",
-      phone: "51998765432",
-      referencePhone: "51977665544",
-      customer: "Carlos García",
-      amount: "320.00",
-      status: "confirmado",
-      trackingStatus: "enviado",
-      date: "12/01/2025",
-      district: "La Molina",
-      address: "Calle Los Rosales 456",
-      reference: "Conjunto residencial Las Praderas",
-    },
-    {
-      id: "1021",
-      phone: "51956789012",
-      referencePhone: "51944332211",
-      customer: "María López",
-      amount: "175.00",
-      status: "confirmado",
-      trackingStatus: "confirmado",
-      date: "11/01/2025",
-      district: "San Borja",
-      address: "Av. Aviación 789",
-      reference: "Edificio corporativo piso 5",
-    },
-    {
-      id: "1020",
-      phone: "51943210987",
-      referencePhone: "51922113344",
-      customer: "Antonio Silva",
-      amount: "95.00",
-      status: "rechazado",
-      date: "10/01/2025",
-      district: "Barranco",
-      address: "Jr. Cajamarca 234",
-      reference: "Casa colonial color amarillo",
-    },
-  ])
+  // NUEVO: Estado para guardar los detalles del pedido que se abre en el modal
+  const [currentOrderDetails, setCurrentOrderDetails] = useState<OrderDetail[]>([])
+
+  // NUEVO: Estado de carga para mostrar "Cargando..."
+  const [isLoading, setIsLoading] = useState(true)
+
+  // MODIFICADO: Inicia orders vacío
+  const [orders, setOrders] = useState<Order[]>([])
 
   const tabs = [
     { id: "pendientes", label: "Pendientes" },
@@ -154,33 +98,140 @@ export default function Orders() {
         order.phone.includes(searchQuery),
     )
 
-  const handleConfirmAction = () => {
-    if (!confirmAction) return
+ const handleConfirmAction = async () => {
+  if (!confirmAction) return
 
+  const newStatus = confirmAction.action === "aprobar" ? "Confirmado" : "Rechazado"
+
+  try {
+    // 1. Mandamos la actualización a Supabase
+    const { error } = await supabase
+      .from('pedido')
+      .update({ estado_pedido: newStatus })
+      .eq('pedido_id', confirmAction.orderId)
+
+    if (error) throw error
+
+    // 2. Si todo sale bien, actualizamos la lista visualmente (tu código original adaptado)
     setOrders((prevOrders) =>
       prevOrders.map((order) => {
         if (order.id === confirmAction.orderId) {
           if (confirmAction.action === "aprobar") {
-            setSuccessMessage(`El pedido #${confirmAction.orderId} ha sido aprobado correctamente.`)
+            setSuccessMessage(`El pedido #${confirmAction.orderId} aprobado.`)
             setTimeout(() => setSuccessMessage(null), 5000)
-            return {
-              ...order,
-              status: "confirmado" as OrderStatus,
-              trackingStatus: "confirmado" as TrackingStatus,
-            }
-          } else if (confirmAction.action === "rechazar") {
-            return {
-              ...order,
-              status: "rechazado" as OrderStatus,
-            }
+            return { ...order, status: "confirmado", trackingStatus: "confirmado" }
+          } else {
+            return { ...order, status: "rechazado" }
           }
         }
         return order
-      }),
+      })
     )
-
-    setConfirmAction(null)
+  } catch (error) {
+    console.error("Error actualizando:", error)
+    alert("No se pudo actualizar el pedido")
   }
+  setConfirmAction(null)
+}
+
+
+const fetchOrders = async () => {
+  setIsLoading(true)
+  try {
+    // Pedimos datos a la tabla 'pedido' y sus relaciones con 'cliente_final'
+    const { data, error } = await supabase
+      .from('pedido')
+      .select(`
+        pedido_id,
+        estado_pedido,
+        monto_total,
+        fecha_creacion,
+        url_voucher_img,
+        cliente_final (
+          nombre_cliente,
+          telefono_cliente,
+          telefono_referencia,
+          direccion_envio,
+          distrito,
+          referencia_ubicacion
+        )
+      `)
+      .order('fecha_creacion', { ascending: false }) // Más recientes primero
+
+    if (error) throw error
+
+    if (data) {
+      // Transformamos los datos crudos de la BD al formato de tu interfaz Order
+      const formattedOrders: Order[] = data.map((item: any) => ({
+        id: item.pedido_id.toString(),
+        phone: item.cliente_final?.telefono_cliente || "",
+        customer: item.cliente_final?.nombre_cliente || "Cliente Desconocido",
+        referencePhone: item.cliente_final?.telefono_referencia || "",
+        amount: item.monto_total.toFixed(2),
+        // Convertimos 'Pendiente' (BD) a 'pendiente' (Frontend)
+        status: item.estado_pedido.toLowerCase() as OrderStatus,
+        date: new Date(item.fecha_creacion).toLocaleDateString('es-PE'),
+        district: item.cliente_final?.distrito || "",
+        address: item.cliente_final?.direccion_envio || "",
+        reference: item.cliente_final?.referencia_ubicacion || "",
+        voucherUrl: item.url_voucher_img,
+        trackingStatus: "confirmado"
+      }))
+      setOrders(formattedOrders)
+    }
+  } catch (error) {
+    console.error("Error cargando pedidos:", error)
+  } finally {
+    setIsLoading(false)
+  }
+}
+
+// Ejecutamos esta función apenas carga la página
+useEffect(() => {
+  fetchOrders()
+}, [])
+
+// Cargar productos de un pedido específico
+const fetchOrderDetails = async (orderId: string) => {
+  const { data, error } = await supabase
+    .from('detalle_pedido')
+    .select(`
+      cantidad,
+      precio_unitario,
+      variacion_producto (
+        producto (
+          nombre_producto,
+          producto_categoria(imagen_categoria)
+        ),
+        talla_producto ( nombre_talla ),
+        color_producto ( nombre_color )
+      )
+    `)
+    .eq('pedido_id', orderId) // Filtramos por el ID del pedido seleccionado
+
+  if (!error && data) {
+    const details = data.map((item: any) => ({
+      name: item.variacion_producto?.producto?.nombre_producto,
+      // Usamos la imagen de la categoría como respaldo si no hay imagen específica
+      image: item.variacion_producto?.producto?.producto_categoria?.imagen_categoria || "/placeholder.svg",
+      size: item.variacion_producto?.talla_producto?.nombre_talla,
+      color: item.variacion_producto?.color_producto?.nombre_color,
+      price: item.precio_unitario.toFixed(2),
+      quantity: item.cantidad
+    }))
+    setCurrentOrderDetails(details)
+  }
+}
+
+// Este efecto se dispara cada vez que seleccionas un pedido diferente
+useEffect(() => {
+  if (selectedOrder) {
+    fetchOrderDetails(selectedOrder)
+  } else {
+    setCurrentOrderDetails([])
+  }
+}, [selectedOrder])
+
 
   const [statusChangeDialog, setStatusChangeDialog] = useState<{
     isOpen: boolean
@@ -335,11 +386,10 @@ export default function Orders() {
                     Ver Detalle
                   </Button>
                   <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-primary border-primary hover:bg-primary/10 bg-transparent"
-                    onClick={() => setSelectedVoucher(order.id)}
-                  >
+                    // ... otras props ...
+                    onClick={() => setSelectedVoucher(order.voucherUrl || null)}
+                    disabled={!order.voucherUrl} // Deshabilitar si no hay foto
+                  > 
                     <FileText className="h-4 w-4 mr-2" />
                     Ver Voucher
                   </Button>
@@ -423,9 +473,9 @@ export default function Orders() {
           </DialogHeader>
 
           <div className="space-y-4 mt-4">
-            {selectedOrder &&
-              orderProducts[selectedOrder]?.map((product, index) => (
-                <Card key={index} className="p-4">
+         {currentOrderDetails.length > 0 ? (
+  currentOrderDetails.map((product, index) => (
+    <Card key={index} className="p-4">
                   <div className="flex gap-4">
                     <div className="w-24 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
                       <img
@@ -452,8 +502,11 @@ export default function Orders() {
                       </div>
                     </div>
                   </div>
-                </Card>
-              ))}
+  </Card>
+  ))
+) : (
+  <p className="text-center py-4">Cargando detalles...</p>
+)}
           </div>
 
           {selectedOrder && (
@@ -492,18 +545,24 @@ export default function Orders() {
       <Dialog open={selectedVoucher !== null} onOpenChange={() => setSelectedVoucher(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold">Comprobante de Pago - #{selectedVoucher}</DialogTitle>
+            <DialogTitle className="text-xl font-bold">Comprobante de Pago</DialogTitle>
           </DialogHeader>
 
           <div className="mt-4">
-            {selectedVoucher && (
+            {selectedVoucher ? (
               <div className="rounded-lg overflow-hidden border border-border bg-muted">
+                {/* CAMBIO CLAVE: 
+                   Antes buscábamos en 'voucherImages[selectedVoucher]'.
+                   Ahora usamos 'selectedVoucher' directamente porque YA es la URL.
+                */}
                 <img
-                  src={voucherImages[selectedVoucher] || "/placeholder.svg?height=600&width=400&query=receipt voucher"}
+                  src={selectedVoucher}
                   alt="Comprobante de pago"
                   className="w-full h-auto"
                 />
               </div>
+            ) : (
+                <p className="text-center py-8 text-muted-foreground">No hay imagen de voucher disponible.</p>
             )}
           </div>
 
