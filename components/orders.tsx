@@ -117,10 +117,12 @@ export default function Orders() {
       prevOrders.map((order) => {
         if (order.id === confirmAction.orderId) {
           if (confirmAction.action === "aprobar") {
-            setSuccessMessage(`El pedido #${confirmAction.orderId} aprobado.`)
+            setSuccessMessage(`El pedido #${confirmAction.orderId} ha sido aprobado exitosamente.`)
             setTimeout(() => setSuccessMessage(null), 5000)
             return { ...order, status: "confirmado", trackingStatus: "confirmado" }
           } else {
+            setSuccessMessage(`El pedido #${confirmAction.orderId} ha sido rechazado exitosamente.`)
+            setTimeout(() => setSuccessMessage(null), 5000)
             return { ...order, status: "rechazado" }
           }
         }
