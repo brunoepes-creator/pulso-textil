@@ -2,13 +2,14 @@
 
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { ChevronDown, LogOut } from "lucide-react"
+import { ChevronDown, LogOut, User } from "lucide-react"
 
 interface HeaderProps {
   onLogout: () => void
+  onNavigate: (page: string) => void
 }
 
-export default function Header({ onLogout }: HeaderProps) {
+export default function Header({ onLogout, onNavigate }: HeaderProps) {
   return (
     <header className="border-b bg-white px-6 py-4">
       <div className="flex justify-end">
@@ -20,6 +21,10 @@ export default function Header({ onLogout }: HeaderProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onClick={() => onNavigate("profile")} className="cursor-pointer">
+              <User className="mr-2 h-4 w-4" />
+              Mis datos
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={onLogout} className="cursor-pointer text-red-600">
               <LogOut className="mr-2 h-4 w-4" />
               Cerrar sesión

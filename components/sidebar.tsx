@@ -1,7 +1,9 @@
 "use client"
 
-import { LayoutDashboard, ShoppingCart, Package, Settings, Menu, X } from "lucide-react"
+import { LayoutDashboard, ShoppingCart, Package, Settings, Menu, X , Users} from "lucide-react"
 import { Button } from "@/components/ui/button"
+// 1. Importamos el componente Image de Next.js
+import Image from "next/image"
 
 interface SidebarProps {
   activePage: string
@@ -10,10 +12,12 @@ interface SidebarProps {
   setIsOpen: (open: boolean) => void
 }
 
+
 export default function Sidebar({ activePage, setActivePage, isOpen, setIsOpen }: SidebarProps) {
   const menuItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "orders", label: "Pedidos", icon: ShoppingCart },
+    { id: "customers", label: "Clientes", icon: Users },
     { id: "catalog", label: "Inventario", icon: Package },
     { id: "admin", label: "Administración", icon: Settings },
   ]
@@ -35,8 +39,22 @@ export default function Sidebar({ activePage, setActivePage, isOpen, setIsOpen }
         } fixed md:static inset-y-0 left-0 z-40 w-64 bg-sidebar border-r border-sidebar-border transition-transform duration-300 ease-in-out md:translate-x-0`}
       >
         <div className="flex flex-col h-full">
-          <div className="p-6 border-b border-sidebar-border">
-            <h1 className="text-2xl font-bold text-sidebar-foreground">PulsoTextil</h1>
+          {/* 2. Modificamos el encabezado del Sidebar.
+             - Cambiamos 'p-6' por 'p-4' para ajustar mejor el espacio vertical si es necesario.
+             - Agregamos 'flex justify-center' para centrar el logo.
+          */}
+          <div className="p-6 border-b border-sidebar-border flex justify-center items-center">
+            {/* Contenedor relativo para la imagen */}
+            <div className="relative w-40 h-12">
+              <Image 
+                src="/logov2.jpg" 
+                alt="AWANA Logo" 
+                fill 
+                className="object-contain" 
+                priority
+              />
+            </div>
+
           </div>
 
           <nav className="flex-1 p-4 space-y-2">

@@ -8,6 +8,8 @@ import Catalog from "@/components/catalog"
 import Admin from "@/components/admin"
 import Login from "@/components/login"
 import Header from "@/components/header"
+import Customers from "@/components/customers"
+import UserProfile from "@/components/user-profile"
 
 export default function Home() {
   const [activePage, setActivePage] = useState("dashboard")
@@ -16,6 +18,10 @@ export default function Home() {
 
   const handleLogout = () => {
     setIsAuthenticated(false)
+  }
+
+  const handleNavigate = (page: string) => {
+    setActivePage(page)
   }
 
   if (!isAuthenticated) {
@@ -27,13 +33,15 @@ export default function Home() {
       <Sidebar activePage={activePage} setActivePage={setActivePage} isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header onLogout={handleLogout} />
+        <Header onLogout={handleLogout} onNavigate={handleNavigate} />
 
         <main className="flex-1 overflow-auto">
           {activePage === "dashboard" && <Dashboard />}
           {activePage === "orders" && <Orders />}
+          {activePage === "customers" && <Customers />}
           {activePage === "catalog" && <Catalog />}
           {activePage === "admin" && <Admin />}
+          {activePage === "profile" && <UserProfile />}
         </main>
       </div>
     </div>
