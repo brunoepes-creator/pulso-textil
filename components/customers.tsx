@@ -1,17 +1,52 @@
 "use client"
 
-import { DialogDescription } from "@/components/ui/dialog"
-
-import { useState } from "react"
-import { Search, Eye, Phone, User, ArrowLeft, Package, MapPin, FileText, Pencil } from "lucide-react"
+import { useState, useEffect } from "react"
+import {
+  Search,
+  Eye,
+  Phone,
+  User,
+  ArrowLeft,
+  Package,
+  MapPin,
+  FileText,
+  Pencil,
+  ArrowUpDown,
+  ChevronsLeft,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
+  Loader2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { supabase } from "@/lib/supabase"
+import { useToast } from "@/hooks/use-toast"
+
+// 1. CAMBIO: Usamos los mismos estados detallados que en Orders
+type OrderStatus = "PENDIENTE_VALIDACION" | "PENDIENTE_ENVIO" | "ENVIADO" | "RECIBIDO" | "RECHAZADO" | "REPROGRAMADO"
+
+interface OrderItem {
+  name: string
+  quantity: number
+  price: number
+  variant: string
+}
+
+interface Order {
+  id: string
+  date: string
+  total: number
+  status: OrderStatus // CAMBIO: Usamos el tipo detallado
+  items: OrderItem[]
+}
 
 interface Customer {
   id: string
+  dbId: number
   firstName: string
   lastName: string
   phone: string
@@ -23,138 +58,26 @@ interface Customer {
   orders: Order[]
 }
 
-interface Order {
-  id: string
-  date: string
-  total: number
-  status: "pending" | "confirmed" | "rejected"
-  items: {
-    name: string
-    quantity: number
-    price: number
-    variant: string
-  }[]
-}
-
-const mockCustomers: Customer[] = [
-  {
-    id: "C001",
-    firstName: "Juan",
-    lastName: "Pérez",
-    phone: "51987654321",
-    referencePhone: "51912345678",
-    address: "Av. Los Alamos 123, Dpto 302",
-    reference: "Edificio azul, al costado del parque",
-    location: "San Isidro, Lima",
-    totalOrders: 3,
-    orders: [
-      {
-        id: "#1024",
-        date: "14/01/2025",
-        total: 85.0,
-        status: "pending",
-        items: [{ name: "Polo Básico", quantity: 2, price: 42.5, variant: "M - Azul" }],
-      },
-      {
-        id: "#1015",
-        date: "10/01/2025",
-        total: 150.0,
-        status: "confirmed",
-        items: [{ name: "Casaca Premium", quantity: 1, price: 150.0, variant: "L - Negro" }],
-      },
-      {
-        id: "#1008",
-        date: "05/01/2025",
-        total: 95.0,
-        status: "confirmed",
-        items: [{ name: "Polo Premium", quantity: 1, price: 95.0, variant: "S - Blanco" }],
-      },
-    ],
-  },
-  {
-    id: "C002",
-    firstName: "Luca",
-    lastName: "Modric",
-    phone: "51912345678",
-    referencePhone: "51987654321",
-    address: "Jr. Las Begonias 456, Casa 10",
-    reference: "Portón negro, frente a la tienda",
-    location: "Miraflores, Lima",
-    totalOrders: 2,
-    orders: [
-      {
-        id: "#1023",
-        date: "13/01/2025",
-        total: 210.0,
-        status: "confirmed",
-        items: [{ name: "Casaca Executive", quantity: 1, price: 210.0, variant: "XL - Gris" }],
-      },
-      {
-        id: "#1012",
-        date: "08/01/2025",
-        total: 120.0,
-        status: "confirmed",
-        items: [{ name: "Polo Casual", quantity: 2, price: 60.0, variant: "M - Verde" }],
-      },
-    ],
-  },
-  {
-    id: "C003",
-    firstName: "Andrés",
-    lastName: "Iniesta",
-    phone: "51964491182",
-    referencePhone: "51923456789",
-    address: "Calle Los Eucaliptos 789",
-    reference: "Casa amarilla con reja blanca",
-    location: "Surco, Lima",
-    totalOrders: 1,
-    orders: [
-      {
-        id: "#1025",
-        date: "15/01/2025",
-        total: 150.0,
-        status: "pending",
-        items: [{ name: "Chompa Deportiva", quantity: 1, price: 150.0, variant: "L - Azul" }],
-      },
-    ],
-  },
-  {
-    id: "C004",
-    firstName: "María",
-    lastName: "García",
-    phone: "51998765432",
-    referencePhone: "51934567890",
-    address: "Av. Javier Prado 234, Of. 501",
-    reference: "Edificio corporativo, Torre A",
-    location: "San Borja, Lima",
-    totalOrders: 4,
-    orders: [
-      {
-        id: "#1020",
-        date: "12/01/2025",
-        total: 180.0,
-        status: "confirmed",
-        items: [{ name: "Casaca Premium", quantity: 1, price: 180.0, variant: "M - Negro" }],
-      },
-      {
-        id: "#1018",
-        date: "11/01/2025",
-        total: 95.0,
-        status: "confirmed",
-        items: [{ name: "Polo Premium", quantity: 1, price: 95.0, variant: "S - Rojo" }],
-      },
-    ],
-  },
-]
-
 export default function Customers() {
+  const { toast } = useToast()
+  
   const [searchName, setSearchName] = useState("")
   const [searchPhone, setSearchPhone] = useState("")
-  const [searchResults, setSearchResults] = useState<Customer[]>([])
+  
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [detailOrder, setDetailOrder] = useState<Order | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isSaveConfirmOpen, setIsSaveConfirmOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const [sortField, setSortField] = useState<"name" | "phone" | "location" | "orders">("name")
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
+  const itemsPerPage = 25
+
   const [editForm, setEditForm] = useState({
     firstName: "",
     lastName: "",
@@ -164,40 +87,174 @@ export default function Customers() {
     location: "",
   })
 
-  const handleSearch = () => {
-    const filtered = mockCustomers.filter((customer) => {
-      const nameMatch = searchName
-        ? `${customer.firstName} ${customer.lastName}`.toLowerCase().includes(searchName.toLowerCase())
-        : true
-      const phoneMatch = searchPhone ? customer.phone.includes(searchPhone) : true
+  const fetchCustomers = async () => {
+    setIsLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('cliente_final')
+        .select(`
+          *,
+          pedido (
+            pedido_id,
+            fecha_creacion,
+            monto_total,
+            estado_pedido,
+            detalle_pedido (
+              cantidad,
+              precio_unitario,
+              variacion_producto (
+                talla_producto (nombre_talla),
+                color_producto (nombre_color),
+                producto (nombre_producto)
+              )
+            )
+          )
+        `)
+        .order('created_at', { ascending: false })
 
-      return nameMatch && phoneMatch
-    })
+      if (error) throw error
 
-    setSearchResults(filtered)
+      if (data) {
+        const formattedCustomers: Customer[] = data.map((client: any) => {
+          const fullName = client.nombre_cliente || ""
+          const nameParts = fullName.split(" ")
+          const firstName = nameParts[0] || ""
+          const lastName = nameParts.slice(1).join(" ") || ""
+
+          const clientOrders: Order[] = (client.pedido || []).map((p: any) => ({
+            id: `#${p.pedido_id}`,
+            date: new Date(p.fecha_creacion).toLocaleDateString("es-PE"),
+            total: p.monto_total,
+            // 2. CAMBIO: Asignamos el estado directo de la BD (haciendo cast)
+            status: p.estado_pedido as OrderStatus,
+            items: (p.detalle_pedido || []).map((d: any) => ({
+              name: d.variacion_producto?.producto?.nombre_producto || "Producto",
+              quantity: d.cantidad,
+              price: d.precio_unitario,
+              variant: `${d.variacion_producto?.talla_producto?.nombre_talla || ""} - ${d.variacion_producto?.color_producto?.nombre_color || ""}`
+            }))
+          }))
+
+          // Ordenar pedidos del más reciente al más antiguo
+          clientOrders.sort((a, b) => {
+             // Convertimos DD/MM/YYYY a objeto Date para comparar
+             const [dayA, monthA, yearA] = a.date.split('/').map(Number)
+             const [dayB, monthB, yearB] = b.date.split('/').map(Number)
+             return new Date(yearB, monthB - 1, dayB).getTime() - new Date(yearA, monthA - 1, dayA).getTime()
+          })
+
+          return {
+            id: `C${client.cliente_final_id}`,
+            dbId: client.cliente_final_id,
+            firstName,
+            lastName,
+            phone: client.telefono_cliente,
+            referencePhone: client.telefono_referencia || "",
+            address: client.direccion_envio || "",
+            reference: client.referencia_ubicacion || "",
+            location: client.distrito || "",
+            totalOrders: clientOrders.length,
+            orders: clientOrders
+          }
+        })
+        setCustomers(formattedCustomers)
+      }
+    } catch (error) {
+      console.error("Error cargando clientes:", error)
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los clientes.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
+  useEffect(() => {
+    fetchCustomers()
+  }, [])
+
+  const searchResults = customers.filter((customer) => {
+    const fullName = `${customer.firstName} ${customer.lastName}`.toLowerCase()
+    const nameMatch = searchName
+      ? fullName.includes(searchName.toLowerCase())
+      : true
+    const phoneMatch = searchPhone ? customer.phone.includes(searchPhone) : true
+
+    return nameMatch && phoneMatch
+  })
+
+  const handleSort = (field: "name" | "phone" | "location" | "orders") => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc")
+    } else {
+      setSortField(field)
+      setSortDirection("asc")
+    }
+  }
+
+  const sortedResults = [...searchResults].sort((a, b) => {
+    let comparison = 0
+    switch (sortField) {
+      case "name":
+        comparison = `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)
+        break
+      case "phone":
+        comparison = a.phone.localeCompare(b.phone)
+        break
+      case "location":
+        comparison = a.location.localeCompare(b.location)
+        break
+      case "orders":
+        comparison = a.totalOrders - b.totalOrders
+        break
+    }
+    return sortDirection === "asc" ? comparison : -comparison
+  })
+
+  const totalPages = Math.ceil(sortedResults.length / itemsPerPage)
+  const paginatedResults = sortedResults.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)))
+  }
+
+  // 3. CAMBIO: Colores para cada estado detallado
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "pending":
+      case "PENDIENTE_VALIDACION":
         return "bg-yellow-100 text-yellow-800 border-yellow-200"
-      case "confirmed":
+      case "PENDIENTE_ENVIO":
+        return "bg-blue-100 text-blue-800 border-blue-200"
+      case "ENVIADO":
+        return "bg-orange-100 text-orange-800 border-orange-200"
+      case "RECIBIDO":
         return "bg-green-100 text-green-800 border-green-200"
-      case "rejected":
+      case "RECHAZADO":
         return "bg-red-100 text-red-800 border-red-200"
+      case "REPROGRAMADO":
+        return "bg-purple-100 text-purple-800 border-purple-200"
       default:
         return "bg-gray-100 text-gray-800 border-gray-200"
     }
   }
 
+  // 4. CAMBIO: Textos amigables para cada estado
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case "pending":
+      case "PENDIENTE_VALIDACION":
         return "Pendiente"
-      case "confirmed":
-        return "Confirmado"
-      case "rejected":
+      case "PENDIENTE_ENVIO":
+        return "Por Enviar"
+      case "ENVIADO":
+        return "Enviado"
+      case "RECIBIDO":
+        return "Recibido"
+      case "RECHAZADO":
         return "Rechazado"
+      case "REPROGRAMADO":
+        return "Reprogramado"
       default:
         return status
     }
@@ -221,22 +278,59 @@ export default function Customers() {
     setIsSaveConfirmOpen(true)
   }
 
-  const confirmSaveEdit = () => {
-    if (selectedCustomer) {
+  const confirmSaveEdit = async () => {
+    if (!selectedCustomer) return
+    
+    setIsSaving(true)
+    setIsSaveConfirmOpen(false)
+
+    try {
+      const fullName = `${editForm.firstName} ${editForm.lastName}`.trim()
+
+      const { error } = await supabase
+        .from('cliente_final')
+        .update({
+          nombre_cliente: fullName,
+          telefono_referencia: editForm.referencePhone,
+          distrito: editForm.location,
+          direccion_envio: editForm.address,
+          referencia_ubicacion: editForm.reference,
+          updated_at: new Date().toISOString()
+        })
+        .eq('cliente_final_id', selectedCustomer.dbId)
+
+      if (error) throw error
+
       const updatedCustomer = {
         ...selectedCustomer,
         ...editForm,
       }
+      
+      setCustomers(prev => prev.map(c => c.dbId === selectedCustomer.dbId ? updatedCustomer : c))
       setSelectedCustomer(updatedCustomer)
-      setIsSaveConfirmOpen(false)
+      
       setIsEditModalOpen(false)
+      toast({
+        title: "Actualizado",
+        description: "Los datos del cliente se guardaron correctamente.",
+      })
+
+    } catch (error: any) {
+      console.error("Error actualizando cliente:", error)
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar el cliente: " + error.message,
+        variant: "destructive"
+      })
+    } finally {
+      setIsSaving(false)
     }
   }
 
   if (selectedCustomer) {
     return (
       <div className="p-6 md:p-8">
-        <div className="max-w-7xl mx-auto">
+        <div className="mx-auto">
           <Button variant="ghost" onClick={() => setSelectedCustomer(null)} className="mb-6 gap-2">
             <ArrowLeft className="h-4 w-4" />
             Volver al listado
@@ -281,7 +375,7 @@ export default function Customers() {
                     <Phone className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Teléfono de Referencia</p>
-                      <p className="text-sm font-medium text-gray-900">{selectedCustomer.referencePhone}</p>
+                      <p className="text-sm font-medium text-gray-900">{selectedCustomer.referencePhone || "-"}</p>
                     </div>
                   </div>
                 </div>
@@ -294,16 +388,16 @@ export default function Customers() {
                   <div className="flex items-start gap-3">
                     <MapPin className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
                     <div>
-                      <p className="text-xs text-gray-500 mb-0.5">Distrito</p>
-                      <p className="text-sm font-medium text-gray-900">{selectedCustomer.location}</p>
+                      <p className="text-xs text-gray-500 mb-0.5">Ubicación</p>
+                      <p className="text-sm font-medium text-gray-900">{selectedCustomer.location || "-"}</p>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-3">
                     <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                     <div>
-                      <p className="text-xs text-gray-500 mb-0.5">Distrito</p>
-                      <p className="text-sm font-medium text-gray-900">{selectedCustomer.address}</p>
+                      <p className="text-xs text-gray-500 mb-0.5">Dirección</p>
+                      <p className="text-sm font-medium text-gray-900">{selectedCustomer.address || "-"}</p>
                     </div>
                   </div>
 
@@ -311,7 +405,7 @@ export default function Customers() {
                     <FileText className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                     <div>
                       <p className="text-xs text-gray-500 mb-0.5">Referencia</p>
-                      <p className="text-sm font-medium text-gray-900">{selectedCustomer.reference}</p>
+                      <p className="text-sm font-medium text-gray-900">{selectedCustomer.reference || "-"}</p>
                     </div>
                   </div>
                 </div>
@@ -325,7 +419,10 @@ export default function Customers() {
               </h2>
 
               <div className="space-y-3">
-                {selectedCustomer.orders.map((order) => (
+                {selectedCustomer.orders.length === 0 ? (
+                    <p className="text-muted-foreground text-sm p-4 text-center bg-gray-50 rounded">Este cliente aún no tiene pedidos registrados.</p>
+                ) : (
+                    selectedCustomer.orders.map((order) => (
                   <div
                     key={order.id}
                     className="border border-gray-200 rounded-lg p-4 hover:shadow-md hover:border-blue-300 transition-all"
@@ -343,7 +440,7 @@ export default function Customers() {
 
                       <div className="flex items-center gap-3">
                         <Badge className={getStatusColor(order.status)}>{getStatusLabel(order.status)}</Badge>
-                        <p className="text-xl font-bold text-blue-600">S/ {order.total.toFixed(2)}</p>
+                        <p className="text-xl font-bold text-blue-600">S/ {Number(order.total).toFixed(2)}</p>
                       </div>
                     </div>
 
@@ -358,7 +455,7 @@ export default function Customers() {
                             </div>
                             <div className="text-right">
                               <p className="text-xs text-gray-500">Cant: {item.quantity}</p>
-                              <p className="font-semibold text-gray-900">S/ {item.price.toFixed(2)}</p>
+                              <p className="font-semibold text-gray-900">S/ {Number(item.price).toFixed(2)}</p>
                             </div>
                           </div>
                         ))}
@@ -370,11 +467,12 @@ export default function Customers() {
                       Ver Detalle Completo
                     </Button>
                   </div>
-                ))}
+                )))}
               </div>
             </div>
           </div>
 
+          {/* MODAL DETALLE PEDIDO */}
           <Dialog open={!!detailOrder} onOpenChange={() => setDetailOrder(null)}>
             <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
@@ -406,7 +504,7 @@ export default function Customers() {
                             <p className="text-sm text-gray-500">Cantidad: {item.quantity}</p>
                           </div>
                           <div className="text-right">
-                            <p className="font-bold text-lg text-blue-600">S/ {item.price.toFixed(2)}</p>
+                            <p className="font-bold text-lg text-blue-600">S/ {Number(item.price).toFixed(2)}</p>
                             <p className="text-xs text-gray-500">por unidad</p>
                           </div>
                         </div>
@@ -417,7 +515,7 @@ export default function Customers() {
                   <div className="border-t pt-4">
                     <div className="flex justify-between items-center">
                       <p className="text-lg font-semibold text-gray-900">Total del Pedido</p>
-                      <p className="text-2xl font-bold text-blue-600">S/ {detailOrder.total.toFixed(2)}</p>
+                      <p className="text-2xl font-bold text-blue-600">S/ {Number(detailOrder.total).toFixed(2)}</p>
                     </div>
                   </div>
                 </div>
@@ -425,6 +523,7 @@ export default function Customers() {
             </DialogContent>
           </Dialog>
 
+          {/* MODAL EDICIÓN CLIENTE */}
           <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
@@ -468,7 +567,7 @@ export default function Customers() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="edit-location">Distrito</Label>
+                  <Label htmlFor="edit-location">Distrito / Ubicación</Label>
                   <Input
                     id="edit-location"
                     value={editForm.location}
@@ -496,15 +595,16 @@ export default function Customers() {
               </div>
 
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>
+                <Button variant="outline" onClick={() => setIsEditModalOpen(false)} disabled={isSaving}>
                   Cancelar
                 </Button>
-                <Button onClick={handleSaveEdit}>Guardar Cambios</Button>
+                <Button onClick={handleSaveEdit} disabled={isSaving}>
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar Cambios"}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
 
-          {/* ... existing save confirmation dialog ... */}
           <Dialog open={isSaveConfirmOpen} onOpenChange={setIsSaveConfirmOpen}>
             <DialogContent>
               <DialogHeader>
@@ -525,124 +625,196 @@ export default function Customers() {
     )
   }
 
+  // VISTA PRINCIPAL (TABLA)
   return (
     <div className="p-6 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Gestión de Clientes</h1>
-          <p className="text-gray-600">Busca y administra la información de tus clientes</p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Búsqueda de Clientes</h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Nombre</label>
-              <Input
-                placeholder="Buscar por nombre..."
-                value={searchName}
-                onChange={(e) => setSearchName(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Teléfono</label>
-              <Input
-                placeholder="Buscar por teléfono..."
-                value={searchPhone}
-                onChange={(e) => setSearchPhone(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <Button onClick={handleSearch} className="w-full md:w-auto gap-2">
-            <Search className="h-4 w-4" />
-            Buscar
-          </Button>
-        </div>
-
-        {/* ... existing search results table ... */}
-        {searchResults.length > 0 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Cliente
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Teléfono
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Distrito
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Pedidos
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Acciones
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {searchResults.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                            <User className="h-5 w-5 text-blue-600" />
-                          </div>
-                          <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">
-                              {customer.firstName} {customer.lastName}
-                            </div>
-                            <div className="text-sm text-gray-500">{customer.id}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center text-sm text-gray-900">
-                          <Phone className="h-4 w-4 text-gray-400 mr-2" />
-                          {customer.phone}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center text-sm text-gray-900">
-                          <MapPin className="h-4 w-4 text-gray-400 mr-2" />
-                          {customer.location}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant="secondary">{customer.totalOrders} pedidos</Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedCustomer(customer)}
-                          className="gap-2"
-                        >
-                          <Eye className="h-4 w-4" />
-                          Ver Ficha
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {searchResults.length === 0 && (searchName || searchPhone) && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-            <Search className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">No se encontraron clientes con los criterios de búsqueda</p>
-          </div>
-        )}
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Clientes</h1>
+  
       </div>
+
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Búsqueda de Clientes</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Nombre</label>
+            <Input
+              placeholder="Buscar por nombre..."
+              value={searchName}
+              onChange={(e) => setSearchName(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Teléfono</label>
+            <Input
+              placeholder="Buscar por teléfono..."
+              value={searchPhone}
+              onChange={(e) => setSearchPhone(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+          <div className="flex justify-center py-20">
+              <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+          </div>
+      ) : searchResults.length > 0 ? (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("name")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Cliente
+                      <ArrowUpDown className="h-4 w-4" />
+                      {sortField === "name" && (
+                        <span className="text-blue-600">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("phone")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Teléfono
+                      <ArrowUpDown className="h-4 w-4" />
+                      {sortField === "phone" && (
+                        <span className="text-blue-600">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("location")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Ubicación
+                      <ArrowUpDown className="h-4 w-4" />
+                      {sortField === "location" && (
+                        <span className="text-blue-600">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("orders")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Pedidos
+                      <ArrowUpDown className="h-4 w-4" />
+                      {sortField === "orders" && (
+                        <span className="text-blue-600">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {paginatedResults.map((customer) => (
+                  <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
+                          <User className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-medium text-gray-900">
+                            {customer.firstName} {customer.lastName}
+                          </div>
+                          <div className="text-sm text-gray-500">{customer.id}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center text-sm text-gray-900">
+                        <Phone className="h-4 w-4 text-gray-400 mr-2" />
+                        {customer.phone}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center text-sm text-gray-900">
+                        <MapPin className="h-4 w-4 text-gray-400 mr-2" />
+                        {customer.location || "-"}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <Badge variant="secondary">{customer.totalOrders} pedidos</Badge>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedCustomer(customer)}
+                        className="gap-2 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"
+                      >
+                        <Eye className="h-4 w-4" />
+                        Ver Ficha
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+              <div className="text-sm text-gray-700">
+                Mostrando {(currentPage - 1) * itemsPerPage + 1} a{" "}
+                {Math.min(currentPage * itemsPerPage, sortedResults.length)} de {sortedResults.length} resultados
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => goToPage(1)} disabled={currentPage === 1}>
+                  <ChevronsLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-gray-700 px-4">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => goToPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronsRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+              <Search className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-500">No se encontraron clientes.</p>
+          </div>
+      )}
     </div>
   )
 }

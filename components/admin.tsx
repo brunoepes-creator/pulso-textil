@@ -469,13 +469,13 @@ export default function AdminPanel() {
         <h2 className="text-3xl font-bold text-foreground">Administración</h2>
         <p className="text-muted-foreground mt-2">
           {activeTab === "products"
-            ? "Gestiona tu inventario de productos"
+            ? ""
             : activeTab === "categories"
-              ? "Administra las categorías de productos"
+              ? ""
               : // Updated description for 'sizes' tab
                 activeTab === "sizes"
-                ? "Gestiona las tallas disponibles"
-                : "Gestiona los colores disponibles"}
+                ? ""
+                : ""}
         </p>
       </div>
 

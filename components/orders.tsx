@@ -4,7 +4,20 @@ import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, Eye, FileText, Check, X, MapPin, Package, ChevronLeft, ChevronRight } from "lucide-react"
+import { 
+  Search, 
+  Eye, 
+  FileText, 
+  Check, 
+  X, 
+  MapPin, 
+  Package, 
+  ChevronLeft, 
+  ChevronRight, 
+  ChevronsLeft, 
+  ChevronsRight,
+  Loader2 
+} from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   AlertDialog,
@@ -19,7 +32,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
 
-// 1. Tipos de estado actualizados
+// 1. Tipos de estado
 type OrderStatus = "PENDIENTE_VALIDACION" | "PENDIENTE_ENVIO" | "ENVIADO" | "RECIBIDO" | "RECHAZADO" | "REPROGRAMADO"
 
 interface Order {
@@ -33,7 +46,7 @@ interface Order {
   address: string
   reference: string
   referencePhone?: string
-  voucherUrls?: string[] // Array de URLs para los comprobantes
+  voucherUrls?: string[]
 }
 
 interface OrderDetail {
@@ -48,9 +61,14 @@ interface OrderDetail {
 export default function Orders() {
   const [activeTab, setActiveTab] = useState("pendientes")
   const [searchQuery, setSearchQuery] = useState("")
+  
+  // Estados de Paginación
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 25
+
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null)
   
-  // Estado para el voucher ahora soporta array de imágenes
+  // Estado para el voucher (array de imágenes)
   const [selectedVoucher, setSelectedVoucher] = useState<string[] | null>(null)
   const [selectedVoucherImageIndex, setSelectedVoucherImageIndex] = useState(0)
   
@@ -94,35 +112,7 @@ export default function Orders() {
     { id: "todos", label: "Todos" },
   ]
 
-  // 2. Lógica de filtrado por Pestañas
-  const filteredOrders = orders
-    .filter((order) => {
-      if (activeTab === "todos") {
-        return ["PENDIENTE_VALIDACION", "PENDIENTE_ENVIO", "ENVIADO", "RECIBIDO", "RECHAZADO", "REPROGRAMADO"].includes(order.status)
-      }
-      
-      if (activeTab === "pendientes") {
-        return order.status === "PENDIENTE_VALIDACION"
-      }
-      
-      if (activeTab === "confirmados") {
-        return ["PENDIENTE_ENVIO", "ENVIADO", "RECIBIDO"].includes(order.status)
-      }
-      
-      if (activeTab === "rechazados") {
-        return order.status === "RECHAZADO"
-      }
-      
-      return true
-    })
-    .filter(
-      (order) =>
-        order.id.includes(searchQuery) ||
-        order.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        order.phone.includes(searchQuery),
-    )
-
-  // 3. Cargar Pedidos desde Supabase
+  // 2. Cargar Pedidos desde Supabase
   const fetchOrders = async () => {
     setIsLoading(true)
     try {
@@ -161,7 +151,6 @@ export default function Orders() {
           district: item.cliente_final?.distrito || "",
           address: item.cliente_final?.direccion_envio || "",
           reference: item.cliente_final?.referencia_ubicacion || "",
-          // Mapeamos el array de comprobantes a un array de strings (URLs)
           voucherUrls: item.comprobantes_pedido?.map((c: any) => c.url_comprobante) || [],
         }))
         setOrders(formattedOrders)
@@ -176,6 +165,46 @@ export default function Orders() {
   useEffect(() => {
     fetchOrders()
   }, [])
+
+  // 3. Lógica de filtrado
+  const filteredOrders = orders
+    .filter((order) => {
+      if (activeTab === "todos") {
+        return ["PENDIENTE_VALIDACION", "PENDIENTE_ENVIO", "ENVIADO", "RECIBIDO", "RECHAZADO", "REPROGRAMADO"].includes(order.status)
+      }
+      if (activeTab === "pendientes") {
+        return order.status === "PENDIENTE_VALIDACION"
+      }
+      if (activeTab === "confirmados") {
+        return ["PENDIENTE_ENVIO", "ENVIADO", "RECIBIDO"].includes(order.status)
+      }
+      if (activeTab === "rechazados") {
+        return order.status === "RECHAZADO"
+      }
+      return true
+    })
+    .filter(
+      (order) =>
+        order.id.includes(searchQuery) ||
+        order.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        order.phone.includes(searchQuery),
+    )
+
+  // 4. Lógica de Paginación
+  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedOrders = filteredOrders.slice(startIndex, endIndex)
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)))
+  }
+
+  // Resetear página al cambiar filtros
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [activeTab, searchQuery])
+
 
   const fetchOrderDetails = async (orderId: string) => {
     const { data, error } = await supabase
@@ -215,7 +244,7 @@ export default function Orders() {
     }
   }, [selectedOrder])
 
-  // Aprobar o Rechazar
+  // Acciones (Aprobar, Rechazar, Cambiar estado)
   const handleConfirmAction = async () => {
     if (!confirmAction) return
 
@@ -250,7 +279,6 @@ export default function Orders() {
     setConfirmAction(null)
   }
 
-  // Cambiar Estado Logístico
   const handleTrackingStatusChange = (orderId: string, newStatus: string) => {
     const order = orders.find((o) => o.id === orderId)
     const statusTyped = newStatus as OrderStatus
@@ -293,7 +321,6 @@ export default function Orders() {
     setStatusChangeDialog({ isOpen: false, orderId: "", currentStatus: "PENDIENTE_ENVIO", newStatus: "PENDIENTE_ENVIO" })
   }
 
-  // Revertir Pedido
   const handleRevertOrder = async () => {
     try {
       const { error } = await supabase
@@ -320,10 +347,9 @@ export default function Orders() {
   }
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto">
+    <div className="p-6 md:p-8 mx-auto">
       <div className="mb-8">
         <h2 className="text-3xl font-bold text-foreground">Gestión de Pedidos</h2>
-        <p className="text-muted-foreground mt-2">Administra todos tus pedidos en un solo lugar</p>
       </div>
 
       {successMessage && (
@@ -367,130 +393,185 @@ export default function Orders() {
 
       <div className="space-y-4">
         {isLoading ? (
-            <div className="text-center py-10">Cargando pedidos...</div>
-        ) : filteredOrders.length === 0 ? (
+            <div className="flex justify-center py-20">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            </div>
+        ) : paginatedOrders.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground">No se encontraron pedidos en esta sección.</div>
         ) : (
-        filteredOrders.map((order) => (
-          <Card key={order.id} className="p-6">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Pedido ID:</span>
-                  <span className="text-sm font-semibold text-foreground">#{order.id}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Fecha:</span>
-                  <span className="text-xs text-muted-foreground">{order.date}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Teléfono:</span>
-                  <span className="text-sm text-foreground">{order.phone}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Cliente:</span>
-                  <span className="text-sm font-medium text-foreground">{order.customer}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Monto:</span>
-                  <span className="text-lg font-bold text-primary">S/ {order.amount}</span>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-primary border-primary hover:bg-primary/10 bg-transparent"
-                    onClick={() => setSelectedOrder(order.id)}
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    Ver Detalle
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-primary border-primary hover:bg-primary/10 bg-transparent"
-                    onClick={() => {
-                        setSelectedVoucher(order.voucherUrls || [])
-                        setSelectedVoucherImageIndex(0)
-                    }}
-                    disabled={!order.voucherUrls || order.voucherUrls.length === 0}
-                  > 
-                    <FileText className="h-4 w-4 mr-2" />
-                    Ver Voucher
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-primary border-primary hover:bg-primary/10 bg-transparent"
-                    onClick={() => setSelectedShipping(order.id)}
-                  >
-                    <MapPin className="h-4 w-4 mr-2" />
-                    Datos de Envío
-                  </Button>
-                </div>
-
-                {["PENDIENTE_ENVIO", "ENVIADO", "RECIBIDO"].includes(order.status) && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-blue-600" />
-                        <span className="text-sm font-semibold text-blue-900">Estado:</span>
-                      </div>
-                      <Select
-                        value={order.status}
-                        onValueChange={(value) => handleTrackingStatusChange(order.id, value)}
-                      >
-                        <SelectTrigger className="w-[180px] bg-white border-blue-300">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="PENDIENTE_ENVIO">
-                            <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-full bg-yellow-500" />
-                              Por Enviar
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="ENVIADO">
-                            <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-full bg-blue-500" />
-                              Enviado
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="RECIBIDO">
-                            <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-full bg-green-500" />
-                              Recibido
-                            </div>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+        <>
+            {paginatedOrders.map((order) => (
+            <Card key={order.id} className="p-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Pedido ID:</span>
+                    <span className="text-sm font-semibold text-foreground">#{order.id}</span>
                     </div>
-                  </div>
-                )}
-
-                {order.status === "RECHAZADO" && (
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-red-600 text-red-600 text-sm font-medium">
-                      <X className="h-4 w-4" />
-                      Rechazado
+                    <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Fecha:</span>
+                    <span className="text-xs text-muted-foreground">{order.date}</span>
                     </div>
+                    <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Teléfono:</span>
+                    <span className="text-sm text-foreground">{order.phone}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Cliente:</span>
+                    <span className="text-sm font-medium text-foreground">{order.customer}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Monto:</span>
+                    <span className="text-lg font-bold text-primary">S/ {order.amount}</span>
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                     <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-emerald-600 border-emerald-600 hover:bg-emerald-50 bg-transparent"
-                      onClick={() => setRevertDialog({ isOpen: true, orderId: order.id })}
+                        variant="outline"
+                        size="sm"
+                        className="text-primary border-primary hover:bg-primary/10 bg-transparent"
+                        onClick={() => setSelectedOrder(order.id)}
                     >
-                      Revertir
+                        <Eye className="h-4 w-4 mr-2" />
+                        Ver Detalle
                     </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </Card>
-        )))}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-primary border-primary hover:bg-primary/10 bg-transparent"
+                        onClick={() => {
+                            setSelectedVoucher(order.voucherUrls || [])
+                            setSelectedVoucherImageIndex(0)
+                        }}
+                        disabled={!order.voucherUrls || order.voucherUrls.length === 0}
+                    > 
+                        <FileText className="h-4 w-4 mr-2" />
+                        Ver Voucher
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-primary border-primary hover:bg-primary/10 bg-transparent"
+                        onClick={() => setSelectedShipping(order.id)}
+                    >
+                        <MapPin className="h-4 w-4 mr-2" />
+                        Datos de Envío
+                    </Button>
+                    </div>
+
+                    {["PENDIENTE_ENVIO", "ENVIADO", "RECIBIDO"].includes(order.status) && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                            <Package className="h-4 w-4 text-blue-600" />
+                            <span className="text-sm font-semibold text-blue-900">Estado:</span>
+                        </div>
+                        <Select
+                            value={order.status}
+                            onValueChange={(value) => handleTrackingStatusChange(order.id, value)}
+                        >
+                            <SelectTrigger className="w-[180px] bg-white border-blue-300">
+                            <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                            <SelectItem value="PENDIENTE_ENVIO">
+                                <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                                Por Enviar
+                                </div>
+                            </SelectItem>
+                            <SelectItem value="ENVIADO">
+                                <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                                Enviado
+                                </div>
+                            </SelectItem>
+                            <SelectItem value="RECIBIDO">
+                                <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-green-500" />
+                                Recibido
+                                </div>
+                            </SelectItem>
+                            </SelectContent>
+                        </Select>
+                        </div>
+                    </div>
+                    )}
+
+                    {order.status === "RECHAZADO" && (
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-red-600 text-red-600 text-sm font-medium">
+                        <X className="h-4 w-4" />
+                        Rechazado
+                        </div>
+                        <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-emerald-600 border-emerald-600 hover:bg-emerald-50 bg-transparent"
+                        onClick={() => setRevertDialog({ isOpen: true, orderId: order.id })}
+                        >
+                        Revertir
+                        </Button>
+                    </div>
+                    )}
+                </div>
+                </div>
+            </Card>
+            ))}
+
+            {/* Paginación */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-border pt-4">
+                <p className="text-sm text-muted-foreground">
+                    Mostrando {startIndex + 1} a {Math.min(endIndex, filteredOrders.length)} de {filteredOrders.length} pedidos
+                </p>
+                <div className="flex items-center gap-2">
+                    <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(1)}
+                    disabled={currentPage === 1}
+                    className="h-8"
+                    >
+                    <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="h-8"
+                    >
+                    <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm text-muted-foreground px-2">
+                    Página {currentPage} de {totalPages}
+                    </span>
+                    <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="h-8"
+                    >
+                    <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="h-8"
+                    >
+                    <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                </div>
+                </div>
+            )}
+        </>
+        )}
       </div>
 
       {/* MODALES Y DIÁLOGOS DE CONFIRMACIÓN */}

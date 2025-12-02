@@ -86,7 +86,6 @@ export default function Catalog() {
     <div className="p-6 md:p-8">
       <div className="mb-8">
         <h2 className="text-3xl font-bold text-foreground">Inventario de Productos</h2>
-        <p className="text-muted-foreground mt-2">Visualiza el stock real de tu base de datos</p>
       </div>
 
       {/* Search Bar */}
