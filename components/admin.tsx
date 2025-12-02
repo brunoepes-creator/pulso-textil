@@ -1,1889 +1,796 @@
 "use client"
 
-import { DialogDescription } from "@/components/ui/dialog"
-
-import type React from "react"
-import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Plus, Pencil, Trash2, Upload, AlertCircle, X } from "lucide-react"
+import { 
+  Plus, Pencil, Trash2, Upload, AlertCircle, X, Check, Loader2, 
+  ChevronLeft, ChevronRight, ArrowUpDown 
+} from "lucide-react"
 import Image from "next/image"
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { supabase } from "@/lib/supabase"
+import { useToast } from "@/hooks/use-toast"
 
+// --- INTERFACES ---
 interface Product {
   id: number
   name: string
   category: string
+  categoryId: number
   price: number
   stock: number
   image: string
   description?: string
   brand?: string
   material?: string
-  sizes?: string[]
-  colors?: string[]
-  images?: string[]
   variants?: Variant[]
 }
 
 interface Variant {
+  id?: number
   size: string
+  sizeId: number
   color: string
+  colorId: number
   sku: string
   price: number
   stock: number
+  image?: string
 }
 
-// Added interface for Category
 interface Category {
   id: number
   name: string
-  description: string
+  image: string
   productCount: number
+  description?: string
 }
 
-// Added interface for Size
 interface Size {
   id: number
   name: string
-  description: string
+  // Eliminada descripción de la interfaz de Talla
 }
 
+interface Color {
+  id: number
+  name: string
+}
+
+type SortKey = "name" | "category" | "price" | "stock" | "productCount" | "description"
+
 export default function AdminPanel() {
+  const { toast } = useToast()
+  const EMPRENDEDOR_ID = 1
+
+  // --- ESTADOS ---
   const [activeTab, setActiveTab] = useState<"products" | "categories" | "sizes" | "colors">("products")
-  const [colors, setColors] = useState(["Blanco", "Negro", "Azul", "Gris", "Rojo", "Verde", "Bordo", "Amarillo"])
-  const [newColor, setNewColor] = useState("")
+  
+  const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [sizesList, setSizesList] = useState<Size[]>([])
+  const [colorsList, setColorsList] = useState<Color[]>([])
+  
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+
+  // Paginación
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 25
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: "asc" | "desc" }>({
+    key: "name",
+    direction: "asc",
+  })
+
+  // Modales
   const [isNewProductModalOpen, setIsNewProductModalOpen] = useState(false)
   const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+
   const [isNewCategoryModalOpen, setIsNewCategoryModalOpen] = useState(false)
-  // Added isEditCategoryModalOpen, editingCategory, isNewSizeModalOpen, isEditSizeModalOpen, editingSize states
   const [isEditCategoryModalOpen, setIsEditCategoryModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
+
   const [isNewSizeModalOpen, setIsNewSizeModalOpen] = useState(false)
   const [isEditSizeModalOpen, setIsEditSizeModalOpen] = useState(false)
   const [editingSize, setEditingSize] = useState<Size | null>(null)
-  // Added deleteError and showDeleteError states for error handling
+
+  const [newColor, setNewColor] = useState("")
+
+  // Alertas
   const [deleteError, setDeleteError] = useState<string>("")
   const [showDeleteError, setShowDeleteError] = useState(false)
-
+  const [itemToDelete, setItemToDelete] = useState<{ type: string; id: number } | null>(null)
+  const [imageUploadError, setImageUploadError] = useState<string>("")
   const [validationError, setValidationError] = useState("")
-  const [fieldErrors, setFieldErrors] = useState<{
-    name: boolean
-    category: boolean
-    brand: boolean
-    images: boolean
-    sizes: boolean
-    colors: boolean
-    variants: boolean
-  }>({
-    name: false,
-    category: false,
-    brand: false,
-    images: false,
-    sizes: false,
-    colors: false,
-    variants: false,
-  })
 
-  const [selectedSizes, setSelectedSizes] = useState<string[]>([])
-  const [selectedColors, setSelectedColors] = useState<string[]>([])
-  const [productImages, setProductImages] = useState<File[]>([])
+  // --- ESTADOS DE FORMULARIO ---
+  const [newProductName, setNewProductName] = useState("")
+  const [newProductDescription, setNewProductDescription] = useState("")
+  const [newProductCategory, setNewProductCategory] = useState<string>("")
+  const [newProductBrand, setNewProductBrand] = useState("Propia")
+  const [newProductMaterial, setNewProductMaterial] = useState("Algodón")
+  
+  const [selectedSizes, setSelectedSizes] = useState<number[]>([])
+  const [selectedColors, setSelectedColors] = useState<number[]>([])
   const [variants, setVariants] = useState<Variant[]>([])
+  
   const [bulkPrice, setBulkPrice] = useState<string>("")
   const [bulkStock, setBulkStock] = useState<string>("")
 
-  const [newProductName, setNewProductName] = useState("")
-  const [newProductDescription, setNewProductDescription] = useState("")
-  const [newProductCategory, setNewProductCategory] = useState("Polos")
-  const [newProductBrand, setNewProductBrand] = useState("Propia")
-  const [newProductMaterial, setNewProductMaterial] = useState("Algodón Pima")
+  // Estados auxiliares
+  const [formName, setFormName] = useState("")
+  const [formDesc, setFormDesc] = useState("")
+  const [categoryImageFile, setCategoryImageFile] = useState<File | null>(null)
+  const [categoryImagePreview, setCategoryImagePreview] = useState<string>("")
 
-  const [newCategoryName, setNewCategoryName] = useState("")
-  const [newCategoryDescription, setNewCategoryDescription] = useState("")
-
-  const [newSizeName, setNewSizeName] = useState("")
-  const [newSizeDescription, setNewSizeDescription] = useState("")
-
-  const [products, setProducts] = useState<Product[]>([
-    {
-      id: 1,
-      name: "Polo Básico",
-      category: "Polos",
-      price: 50.0,
-      stock: 45,
-      image: "/basic-tshirt.png",
-      description: "Polo básico de algodón de alta calidad",
-      brand: "Propia",
-      material: "Algodón Pima",
-      sizes: ["XS", "S", "M", "L", "XL"],
-      colors: ["Blanco", "Negro", "Azul"],
-      images: ["/basic-tshirt.png"],
-    },
-  ])
-
-  const [categories, setCategories] = useState<Category[]>([
-    { id: 1, name: "Polos", description: "Prendas superiores casuales", productCount: 3 },
-    { id: 2, name: "Casacas", description: "Prendas de abrigo", productCount: 2 },
-    { id: 3, name: "Chompas", description: "Prendas tejidas", productCount: 2 },
-  ])
-
-  const [sizesList, setSizesList] = useState<Size[]>([
-    { id: 1, name: "XS", description: "Extra pequeño" },
-    { id: 2, name: "S", description: "Pequeño" },
-    { id: 3, name: "M", description: "Mediano" },
-    { id: 4, name: "L", description: "Grande" },
-    { id: 5, name: "XL", description: "Extra grande" },
-    { id: 6, name: "XXL", description: "Doble extra grande" },
-  ])
-
-  const sizes = ["XS", "S", "M", "L", "XL", "XXL"]
-
-  const handleAddColor = () => {
-    if (newColor.trim()) {
-      setColors([...colors, newColor.trim()])
-      setNewColor("")
-    }
-  }
-
-  const handleRemoveColor = (colorToRemove: string) => {
-    setColors(colors.filter((color) => color !== colorToRemove))
-  }
-
-  const handleDeleteCategory = (category: Category) => {
-    if (category.productCount > 0) {
-      setDeleteError(
-        `No se puede eliminar la categoría "${category.name}" porque tiene ${category.productCount} producto(s) asociado(s).`,
-      )
-      setShowDeleteError(true)
-      return
-    }
-    setCategories(categories.filter((cat) => cat.id !== category.id))
-  }
-
-  const handleEditCategory = (category: Category) => {
-    setEditingCategory(category)
-    setNewCategoryName(category.name)
-    setNewCategoryDescription(category.description)
-    setIsEditCategoryModalOpen(true)
-  }
-
-  const handleSaveEditedCategory = () => {
-    if (!editingCategory) return
-
-    setCategories(
-      categories.map((cat) =>
-        cat.id === editingCategory.id ? { ...cat, name: newCategoryName, description: newCategoryDescription } : cat,
-      ),
-    )
-
-    setIsEditCategoryModalOpen(false)
-    setEditingCategory(null)
-    setNewCategoryName("")
-    setNewCategoryDescription("")
-  }
-
-  const handleSaveNewCategory = () => {
-    const newCategory: Category = {
-      id: categories.length + 1,
-      name: newCategoryName,
-      description: newCategoryDescription,
-      productCount: 0,
-    }
-    setCategories([...categories, newCategory])
-    setIsNewCategoryModalOpen(false)
-    setNewCategoryName("")
-    setNewCategoryDescription("")
-  }
-
-  const handleDeleteSize = (sizeId: number) => {
-    setSizesList(sizesList.filter((size) => size.id !== sizeId))
-  }
-
-  const handleEditSize = (size: Size) => {
-    setEditingSize(size)
-    setNewSizeName(size.name)
-    setNewSizeDescription(size.description)
-    setIsEditSizeModalOpen(true)
-  }
-
-  const handleSaveEditedSize = () => {
-    if (!editingSize) return
-
-    setSizesList(
-      sizesList.map((size) =>
-        size.id === editingSize.id ? { ...size, name: newSizeName, description: newSizeDescription } : size,
-      ),
-    )
-
-    setIsEditSizeModalOpen(false)
-    setEditingSize(null)
-    setNewSizeName("")
-    setNewSizeDescription("")
-  }
-
-  const handleSaveNewSize = () => {
-    const newSize: Size = {
-      id: sizesList.length + 1,
-      name: newSizeName,
-      description: newSizeDescription,
-    }
-    setSizesList([...sizesList, newSize])
-    setIsNewSizeModalOpen(false)
-    setNewSizeName("")
-    setNewSizeDescription("")
-  }
-
-  const toggleSize = (size: string) => {
-    setSelectedSizes((prev) => (prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size]))
-  }
-
-  const toggleColor = (color: string) => {
-    setSelectedColors((prev) => (prev.includes(color) ? prev.filter((c) => c !== color) : [...prev, color]))
-  }
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const files = Array.from(e.target.files)
-      const validFormats = ["image/png", "image/jpeg", "image/jpg"]
-      const validFiles = files.filter((file) => validFormats.includes(file.type))
-
-      if (validFiles.length !== files.length) {
-        alert("Solo se permiten archivos PNG, JPG o JPEG")
+  // --- CARGA INICIAL ---
+  const fetchData = async () => {
+    setIsLoading(true)
+    try {
+      const { data: catsData } = await supabase.from('producto_categoria').select('*')
+      const { data: sizesData } = await supabase.from('talla_producto').select('*')
+      const { data: colorsData } = await supabase.from('color_producto').select('*')
+      const { data: prodsData } = await supabase
+        .from('producto')
+        .select(`
+          *,
+          producto_categoria (nombre_categoria),
+          marca_producto (nombre_marca),
+          variacion_producto (
+            variacion_producto_id,
+            precio_producto,
+            stock_cantidad_producto,
+            codigo_producto,
+            talla_producto (talla_producto_id, nombre_talla),
+            color_producto (color_producto_id, nombre_color)
+          )
+        `)
+        .order('producto_id', { ascending: false })
+      
+      if (catsData) {
+        const catsWithCount = await Promise.all(catsData.map(async (cat: any) => {
+          const { count } = await supabase.from('producto').select('*', { count: 'exact', head: true }).eq('producto_categoria_id', cat.producto_categoria_id)
+          return {
+            id: cat.producto_categoria_id,
+            name: cat.nombre_categoria,
+            image: cat.imagen_categoria || "", 
+            description: "Categoría",
+            productCount: count || 0
+          }
+        }))
+        setCategories(catsWithCount)
       }
 
-      setProductImages(validFiles)
+      if (sizesData) {
+        setSizesList(sizesData.map((s: any) => ({ 
+          id: s.talla_producto_id, 
+          name: s.nombre_talla
+        })))
+      }
+
+      if (colorsData) {
+        setColorsList(colorsData.map((c: any) => ({ id: c.color_producto_id, name: c.nombre_color })))
+      }
+
+      if (prodsData) {
+        const formattedProds: Product[] = prodsData.map((p: any) => {
+          const vars = p.variacion_producto || []
+          const totalStock = vars.reduce((acc: number, v: any) => acc + (v.stock_cantidad_producto || 0), 0)
+          const avgPrice = vars.length > 0 ? vars[0].precio_producto : 0
+          
+          return {
+            id: p.producto_id,
+            name: p.nombre_producto,
+            description: p.descripcion_producto,
+            category: p.producto_categoria?.nombre_categoria || "Sin categoría",
+            categoryId: p.producto_categoria_id,
+            brand: p.marca_producto?.nombre_marca || "Propia",
+            material: p.material_producto,
+            price: avgPrice,
+            stock: totalStock,
+            image: "/placeholder.svg",
+            variants: vars.map((v: any) => ({
+              id: v.variacion_producto_id,
+              size: v.talla_producto?.nombre_talla,
+              sizeId: v.talla_producto?.talla_producto_id,
+              color: v.color_producto?.nombre_color,
+              colorId: v.color_producto?.color_producto_id,
+              sku: v.codigo_producto,
+              price: v.precio_producto,
+              stock: v.stock_cantidad_producto
+            }))
+          }
+        })
+        setProducts(formattedProds)
+      }
+
+    } catch (error) {
+      console.error("Error cargando datos:", error)
+      toast({ title: "Error", description: "No se pudieron cargar los datos", variant: "destructive" })
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const handleSaveProduct = () => {
-    const errors = {
-      name: !newProductName.trim(),
-      category: !newProductCategory,
-      brand: !newProductBrand,
-      images: productImages.length === 0,
-      sizes: selectedSizes.length === 0,
-      colors: selectedColors.length === 0,
-      variants: variants.length === 0 || variants.some((v) => v.price === 0 || v.stock === 0),
-    }
+  useEffect(() => {
+    fetchData()
+  }, [])
 
-    setFieldErrors(errors)
+  useEffect(() => {
+    setCurrentPage(1)
+    setSortConfig({ key: "name", direction: "asc" })
+  }, [activeTab])
 
-    if (Object.values(errors).some((error) => error)) {
-      const errorMessages = []
-      if (errors.name) errorMessages.push("Nombre del producto")
-      if (errors.category) errorMessages.push("Categoría")
-      if (errors.brand) errorMessages.push("Marca")
-      if (errors.images) errorMessages.push("Al menos una imagen")
-      if (errors.sizes) errorMessages.push("Al menos una talla")
-      if (errors.colors) errorMessages.push("Al menos un color")
-      if (errors.variants) errorMessages.push("Todas las variantes deben tener precio y stock mayor a 0")
+  // --- HELPERS ---
+  const sortData = <T extends Product | Category | Size>(data: T[]) => {
+    const sortedData = [...data]
+    sortedData.sort((a: any, b: any) => {
+      if (!sortConfig.key) return 0
+      
+      let aValue = a[sortConfig.key]
+      let bValue = b[sortConfig.key]
 
-      setValidationError(`Por favor, completa los siguientes campos: ${errorMessages.join(", ")}`)
-      return
-    }
+      if (aValue === undefined || aValue === null) aValue = ""
+      if (bValue === undefined || bValue === null) bValue = ""
 
-    const totalStock = variants.reduce((sum, v) => sum + v.stock, 0)
-    const avgPrice = variants.length > 0 ? variants.reduce((sum, v) => sum + v.price, 0) / variants.length : 0
+      if (typeof aValue === 'string') aValue = aValue.toLowerCase()
+      if (typeof bValue === 'string') bValue = bValue.toLowerCase()
 
-    const newProduct: Product = {
-      id: products.length + 1,
-      name: newProductName,
-      category: newProductCategory,
-      price: avgPrice,
-      stock: totalStock,
-      image: productImages.length > 0 ? URL.createObjectURL(productImages[0]) : "/basic-tshirt.png",
-      description: newProductDescription,
-      brand: newProductBrand,
-      sizes: selectedSizes,
-      colors: selectedColors,
-      images: productImages.length > 0 ? productImages.map((f) => URL.createObjectURL(f)) : ["/basic-tshirt.png"],
-      variants: variants,
-    }
-
-    setProducts([...products, newProduct])
-
-    // Reset form
-    setIsNewProductModalOpen(false)
-    setNewProductName("")
-    setNewProductDescription("")
-    setNewProductCategory("Polos")
-    setNewProductBrand("Propia")
-    setSelectedSizes([])
-    setSelectedColors([])
-    setProductImages([])
-    setVariants([])
-    setBulkPrice("")
-    setBulkStock("")
-    setValidationError("")
-    setFieldErrors({
-      name: false,
-      category: false,
-      brand: false,
-      images: false,
-      sizes: false,
-      colors: false,
-      variants: false,
+      if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1
+      if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1
+      return 0
     })
+    return sortedData
   }
 
-  const handleEditProduct = (product: Product) => {
-    setEditingProduct(product)
-    setNewProductName(product.name)
-    setNewProductDescription(product.description || "")
-    setNewProductCategory(product.category)
-    setNewProductBrand(product.brand || "Propia")
-    setNewProductMaterial(product.material || "Algodón Pima")
-    setSelectedSizes(product.sizes || [])
-    setSelectedColors(product.colors || [])
-    setVariants(product.variants || []) // Initialize variants for editing
-    setIsEditProductModalOpen(true)
+  const getPaginatedData = (data: any[]) => {
+    const sorted = sortData(data)
+    const totalPages = Math.ceil(sorted.length / itemsPerPage)
+    const paginatedItems = sorted.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+    return { paginatedItems, totalPages }
   }
 
-  const handleSaveEditedProduct = () => {
-    if (!editingProduct) return
-
-    const totalStock = variants.reduce((sum, v) => sum + v.stock, 0)
-    const avgPrice =
-      variants.length > 0 ? variants.reduce((sum, v) => sum + v.price, 0) / variants.length : editingProduct.price
-
-    const updatedProduct: Product = {
-      ...editingProduct,
-      name: newProductName,
-      description: newProductDescription,
-      category: newProductCategory,
-      brand: newProductBrand,
-      material: newProductMaterial,
-      price: avgPrice,
-      stock: totalStock,
-      sizes: selectedSizes,
-      colors: selectedColors,
-      variants: variants,
-      images: productImages.length > 0 ? productImages.map((f) => URL.createObjectURL(f)) : editingProduct.images,
+  const handleSort = (key: SortKey) => {
+    let direction: "asc" | "desc" = "asc"
+    if (sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc"
     }
+    setSortConfig({ key, direction })
+  }
 
-    setProducts(products.map((p) => (p.id === editingProduct.id ? updatedProduct : p)))
+  const goToPage = (page: number, totalPages: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)))
+  }
 
-    // Reset form
-    setIsEditProductModalOpen(false)
-    setEditingProduct(null)
+  // --- RESET FORM ---
+  const resetForm = () => {
     setNewProductName("")
     setNewProductDescription("")
-    setNewProductCategory("Polos")
-    setNewProductBrand("Propia")
-    setNewProductMaterial("Algodón Pima")
+    setNewProductCategory("")
     setSelectedSizes([])
     setSelectedColors([])
-    setProductImages([])
     setVariants([])
     setBulkPrice("")
     setBulkStock("")
+    setEditingProduct(null)
+    setFormName("")
+    setFormDesc("")
+    // Variables de imagen reseteadas correctamente
+    setCategoryImageFile(null)
+    setCategoryImagePreview("")
+    setImageUploadError("")
+    setValidationError("")
+    setEditingCategory(null)
+    setEditingSize(null)
   }
 
-  // Removed redundant handleSaveCategory function
-  // const handleSaveCategory = () => {
-  //   console.log("[v0] Saving category...")
-  //   setIsNewCategoryModalOpen(false)
-  // }
+  // --- HANDLERS IMAGEN ---
+  const handleCategoryImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      const validTypes = ['image/jpeg', 'image/png', 'image/jpg']
+      if (!validTypes.includes(file.type)) {
+        setImageUploadError("Solo JPG/PNG.")
+        return
+      }
+      setImageUploadError("")
+      setCategoryImageFile(file)
+      setCategoryImagePreview(URL.createObjectURL(file))
+    }
+  }
 
+  // --- LOGICA VARIANTES ---
   const generateVariants = () => {
     const newVariants: Variant[] = []
-    selectedSizes.forEach((size) => {
-      selectedColors.forEach((color) => {
-        const sku = `POL-${size}-${color.substring(0, 3).toUpperCase()}`
-        newVariants.push({
-          size,
-          color,
-          sku,
-          price: 0,
-          stock: 0,
-        })
+    selectedSizes.forEach((sizeId) => {
+      selectedColors.forEach((colorId) => {
+        const sizeObj = sizesList.find(s => s.id === sizeId)
+        const colorObj = colorsList.find(c => c.id === colorId)
+        if (sizeObj && colorObj) {
+          const sku = `POL-${sizeObj.name}-${colorObj.name.substring(0, 3).toUpperCase()}`
+          newVariants.push({
+            size: sizeObj.name, sizeId: sizeObj.id,
+            color: colorObj.name, colorId: colorObj.id,
+            sku, price: 0, stock: 0,
+          })
+        }
       })
     })
     setVariants(newVariants)
   }
 
+  useEffect(() => {
+    if (isNewProductModalOpen && selectedSizes.length > 0 && selectedColors.length > 0) {
+      generateVariants()
+    }
+  }, [selectedSizes, selectedColors, isNewProductModalOpen])
+
+  const toggleSize = (sizeId: number) => { setSelectedSizes((prev) => (prev.includes(sizeId) ? prev.filter((s) => s !== sizeId) : [...prev, sizeId])) }
+  const toggleColor = (colorId: number) => { setSelectedColors((prev) => (prev.includes(colorId) ? prev.filter((c) => c !== colorId) : [...prev, colorId])) }
   const applyBulkPricing = () => {
-    const price = Number.parseFloat(bulkPrice) || 0
-    const stock = Number.parseInt(bulkStock) || 0
-    setVariants((prev) =>
-      prev.map((variant) => ({
-        ...variant,
-        price,
-        stock,
-      })),
-    )
+    const price = parseFloat(bulkPrice) || 0
+    const stock = parseInt(bulkStock) || 0
+    setVariants((prev) => prev.map((v) => ({ ...v, price, stock })))
   }
-
   const updateVariant = (index: number, field: "price" | "stock", value: number) => {
-    setVariants((prev) => prev.map((variant, i) => (i === index ? { ...variant, [field]: value } : variant)))
+    setVariants((prev) => prev.map((v, i) => (i === index ? { ...v, [field]: value } : v)))
   }
 
-  const handleDeleteProduct = (productId: number) => {
-    if (confirm("¿Estás seguro de que deseas eliminar este producto?")) {
-      setProducts(products.filter((p) => p.id !== productId))
+  // --- CRUD ---
+  const handleSaveProduct = async () => {
+    if (!newProductName || !newProductCategory || variants.length === 0) {
+      setValidationError("Completa los campos obligatorios y genera variantes.")
+      return
     }
+    setIsSaving(true)
+    setValidationError("")
+    try {
+      const { data: prodData, error: prodError } = await supabase.from('producto').insert([{
+          nombre_producto: newProductName, descripcion_producto: newProductDescription,
+          material_producto: newProductMaterial, producto_categoria_id: parseInt(newProductCategory),
+          marca_producto_id: 1, emprendedor_id: EMPRENDEDOR_ID
+      }]).select()
+      if (prodError) throw prodError
+      const newProdId = prodData[0].producto_id
+      const variantsToInsert = variants.map(v => ({
+        producto_id: newProdId, talla_producto_id: v.sizeId, color_producto_id: v.colorId,
+        precio_producto: v.price, stock_cantidad_producto: v.stock, codigo_producto: v.sku,
+        estaciones_producto_id: 1, emprendedor_id: EMPRENDEDOR_ID
+      }))
+      const { error: varError } = await supabase.from('variacion_producto').insert(variantsToInsert)
+      if (varError) throw varError
+      toast({ title: "Éxito", description: "Producto creado correctamente" }); setIsNewProductModalOpen(false); resetForm(); fetchData()
+    } catch (error: any) { setValidationError(error.message) } finally { setIsSaving(false) }
   }
 
-  const [variantToDelete, setVariantToDelete] = useState<number | null>(null)
-  const [editVariantToDelete, setEditVariantToDelete] = useState<{ index: number; variant: string } | null>(null)
-
-  const deleteVariant = (index: number) => {
-    setVariants((prev) => prev.filter((_, i) => i !== index))
-    setVariantToDelete(null)
+  const handleUpdateProduct = async () => {
+    if (!editingProduct || !newProductName) return
+    setIsSaving(true)
+    try {
+      await supabase.from('producto').update({
+          nombre_producto: newProductName, descripcion_producto: newProductDescription,
+          producto_categoria_id: parseInt(newProductCategory), material_producto: newProductMaterial
+      }).eq('producto_id', editingProduct.id)
+      for (const v of variants) {
+        if (v.id) { await supabase.from('variacion_producto').update({ precio_producto: v.price, stock_cantidad_producto: v.stock }).eq('variacion_producto_id', v.id) }
+      }
+      toast({ title: "Éxito", description: "Producto actualizado" }); setIsEditProductModalOpen(false); resetForm(); fetchData()
+    } catch (error: any) { toast({ title: "Error", description: error.message, variant: "destructive" }) } finally { setIsSaving(false) }
   }
 
-  const handleConfirmDeleteVariant = () => {
-    if (variantToDelete !== null) {
-      deleteVariant(variantToDelete)
-    }
+  const handleSaveCategory = async () => {
+    if(!formName) return
+    setIsSaving(true)
+    const imageUrl = categoryImageFile ? categoryImageFile.name : "/placeholder.svg"
+    try {
+      await supabase.from('producto_categoria').insert([{ 
+          nombre_categoria: formName, imagen_categoria: imageUrl, 
+          emprendedor_id: EMPRENDEDOR_ID, producto_genero_id: 1 
+      }])
+      setIsNewCategoryModalOpen(false); resetForm(); fetchData()
+    } catch (err: any) { toast({ title: "Error", description: err.message, variant: "destructive" }) } finally { setIsSaving(false) }
   }
 
-  const handleConfirmDeleteEditVariant = () => {
-    if (editVariantToDelete !== null && editingProduct) {
-      const newVariants = editingProduct.variants?.filter((_, i) => i !== editVariantToDelete.index) || []
-      setEditingProduct({
-        ...editingProduct,
-        variants: newVariants,
-      })
-      setEditVariantToDelete(null)
-    }
+  const handleUpdateCategory = async () => {
+    if(!editingCategory || !formName) return
+    setIsSaving(true)
+    const imageUrl = categoryImageFile ? categoryImageFile.name : editingCategory.image
+    try {
+      await supabase.from('producto_categoria').update({ nombre_categoria: formName, imagen_categoria: imageUrl }).eq('producto_categoria_id', editingCategory.id)
+      setIsEditCategoryModalOpen(false); resetForm(); fetchData()
+    } catch (err: any) { toast({ title: "Error", description: err.message, variant: "destructive" }) } finally { setIsSaving(false) }
   }
+
+  const handleSaveSize = async () => {
+    if(!formName) return
+    setIsSaving(true)
+    try {
+      const nextOrder = sizesList.length + 1
+      await supabase.from('talla_producto').insert([{ nombre_talla: formName, emprendedor_id: EMPRENDEDOR_ID }])
+      setIsNewSizeModalOpen(false); resetForm(); fetchData()
+    } catch (err: any) { toast({ title: "Error", description: err.message, variant: "destructive" }) } finally { setIsSaving(false) }
+  }
+
+  const handleUpdateSize = async () => {
+    if(!editingSize || !formName) return
+    setIsSaving(true)
+    try {
+      await supabase.from('talla_producto').update({ nombre_talla: formName }).eq('talla_producto_id', editingSize.id)
+      setIsEditSizeModalOpen(false); resetForm(); fetchData()
+    } catch (err: any) { toast({ title: "Error", description: err.message, variant: "destructive" }) } finally { setIsSaving(false) }
+  }
+
+  const handleAddColor = async () => {
+    if (!newColor.trim()) return
+    await supabase.from('color_producto').insert([{ nombre_color: newColor, emprendedor_id: EMPRENDEDOR_ID }])
+    setNewColor(""); fetchData()
+  }
+
+  const confirmDelete = async () => {
+    if (!itemToDelete) return
+    const { type, id } = itemToDelete
+    setShowDeleteError(false)
+    try {
+      if (type === 'product') {
+        const { data: vars } = await supabase.from('variacion_producto').select('variacion_producto_id').eq('producto_id', id)
+        const vIds = vars?.map(v => v.variacion_producto_id) || []
+        if (vIds.length > 0) {
+            const { count } = await supabase.from('detalle_pedido').select('*', { count: 'exact', head: true }).in('variacion_producto_id', vIds)
+            if (count && count > 0) { setDeleteError(`No se puede eliminar este producto porque está presente en ${count} pedido(s).`); setShowDeleteError(true); setItemToDelete(null); return }
+        }
+        await supabase.from('variacion_producto').delete().eq('producto_id', id)
+        await supabase.from('producto').delete().eq('producto_id', id)
+      } else if (type === 'category') {
+        const { count } = await supabase.from('producto').select('*', { count: 'exact', head: true }).eq('producto_categoria_id', id)
+        if (count && count > 0) { setDeleteError(`No se puede eliminar esta categoría porque tiene ${count} productos asociados.`); setShowDeleteError(true); setItemToDelete(null); return }
+        await supabase.from('producto_categoria').delete().eq('producto_categoria_id', id)
+      } else if (type === 'size') {
+         const { count } = await supabase.from('variacion_producto').select('*', { count: 'exact', head: true }).eq('talla_producto_id', id)
+         if (count && count > 0) { setDeleteError("No se puede eliminar esta talla porque está en uso en productos."); setShowDeleteError(true); setItemToDelete(null); return }
+         await supabase.from('talla_producto').delete().eq('talla_producto_id', id)
+      } else if (type === 'color') {
+        const { count } = await supabase.from('variacion_producto').select('*', { count: 'exact', head: true }).eq('color_producto_id', id)
+        if (count && count > 0) { setDeleteError("No se puede eliminar este color porque está en uso en productos."); setShowDeleteError(true); setItemToDelete(null); return }
+        await supabase.from('color_producto').delete().eq('color_producto_id', id)
+      }
+      toast({ title: "Eliminado", description: "Elemento eliminado correctamente" }); fetchData()
+    } catch (error: any) { toast({ title: "Error", description: "Error al eliminar", variant: "destructive" }) }
+    setItemToDelete(null)
+  }
+
+  const openEditProduct = (prod: Product) => {
+    setEditingProduct(prod); setNewProductName(prod.name); setNewProductDescription(prod.description || "")
+    setNewProductCategory(prod.categoryId.toString()); setNewProductMaterial(prod.material || "")
+    setVariants(prod.variants || []); setIsEditProductModalOpen(true)
+  }
+  const openEditCategory = (cat: Category) => {
+    setEditingCategory(cat); setFormName(cat.name); setFormDesc(cat.description || "")
+    setCategoryImagePreview(cat.image.startsWith('http') ? cat.image : "/placeholder.svg")
+    setIsEditCategoryModalOpen(true)
+  }
+  const openEditSize = (size: Size) => { 
+    setEditingSize(size); setFormName(size.name); setFormDesc("") 
+    setIsEditSizeModalOpen(true) 
+  }
+
+  const PaginationControls = ({ currentPage, totalPages, onPageChange }: { currentPage: number, totalPages: number, onPageChange: (page: number) => void }) => (
+    <div className="px-4 py-4 border-t flex items-center justify-between bg-white">
+        <div className="text-sm text-muted-foreground">Página {currentPage} de {totalPages}</div>
+        <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1}><ChevronLeft className="h-4 w-4" /></Button>
+            <Button variant="outline" size="sm" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages}><ChevronRight className="h-4 w-4" /></Button>
+        </div>
+    </div>
+  )
+
+  const SortableHeader = ({ label, sortKey, currentConfig, onSort }: { label: string, sortKey: SortKey, currentConfig: any, onSort: (k: SortKey) => void }) => (
+    <th className="text-left p-4 font-medium text-sm cursor-pointer hover:bg-muted/50 transition-colors text-muted-foreground uppercase tracking-wider" onClick={() => onSort(sortKey)}>
+        <div className="flex items-center gap-2">
+            {label}
+            <ArrowUpDown className={`h-4 w-4 ${currentConfig.key === sortKey ? "text-primary" : "text-muted-foreground/50"}`} />
+        </div>
+    </th>
+  )
 
   return (
     <div className="p-6 md:p-8">
       <div className="mb-8">
         <h2 className="text-3xl font-bold text-foreground">Administración</h2>
-        <p className="text-muted-foreground mt-2">
-          {activeTab === "products"
-            ? ""
-            : activeTab === "categories"
-              ? ""
-              : // Updated description for 'sizes' tab
-                activeTab === "sizes"
-                ? ""
-                : ""}
-        </p>
+        <p className="text-muted-foreground mt-2">Gestiona tu inventario, categorías y atributos.</p>
       </div>
 
       <div className="mb-6 border-b">
-        <div className="flex gap-8">
-          <button
-            onClick={() => setActiveTab("products")}
-            className={`pb-3 px-1 font-medium transition-colors relative ${
-              activeTab === "products" ? "text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Productos
-            {activeTab === "products" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
-          </button>
-          <button
-            onClick={() => setActiveTab("categories")}
-            className={`pb-3 px-1 font-medium transition-colors relative ${
-              activeTab === "categories" ? "text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Categorías
-            {activeTab === "categories" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
-          </button>
-          <button
-            onClick={() => setActiveTab("sizes")}
-            className={`pb-3 px-1 font-medium transition-colors relative ${
-              activeTab === "sizes" ? "text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Tallas
-            {activeTab === "sizes" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
-          </button>
-          <button
-            onClick={() => setActiveTab("colors")}
-            className={`pb-3 px-1 font-medium transition-colors relative ${
-              activeTab === "colors" ? "text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Colores
-            {activeTab === "colors" && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
-          </button>
+        <div className="flex gap-8 overflow-x-auto">
+          {['products', 'categories', 'sizes', 'colors'].map((tab) => (
+             <button key={tab} onClick={() => setActiveTab(tab as any)} className={`pb-3 px-1 font-medium transition-colors relative capitalize ${activeTab === tab ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+               {tab === 'products' ? 'Productos' : tab === 'categories' ? 'Categorías' : tab === 'sizes' ? 'Tallas' : 'Colores'}
+               {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
+             </button>
+          ))}
         </div>
       </div>
 
-      {activeTab === "products" ? (
+      {isLoading ? ( <div className="flex justify-center py-10"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div> ) : (
         <>
-          <div className="mb-6">
-            <Button className="bg-primary hover:bg-primary/90" onClick={() => setIsNewProductModalOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Producto
-            </Button>
-          </div>
-
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="text-left p-4 font-medium text-sm">Imágenes</th>
-                      <th className="text-left p-4 font-medium text-sm">Producto</th>
-                      <th className="text-left p-4 font-medium text-sm">Categoría</th>
-                      <th className="text-left p-4 font-medium text-sm">Precio</th>
-                      <th className="text-left p-4 font-medium text-sm">Stock</th>
-                      <th className="text-left p-4 font-medium text-sm">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.map((product) => (
-                      <tr key={product.id} className="border-t">
-                        <td className="p-4">
-                          <div className="w-12 h-12 bg-muted rounded-md overflow-hidden">
-                            <Image
-                              src={product.image || "/placeholder.svg"}
-                              alt={product.name}
-                              width={48}
-                              height={48}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        </td>
-                        <td className="p-4">{product.name}</td>
-                        <td className="p-4">
-                          <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-sm">
-                            {product.category}
-                          </span>
-                        </td>
-                        <td className="p-4 text-primary font-medium">S/ {product.price.toFixed(2)}</td>
-                        <td className="p-4 text-primary font-medium">{product.stock}</td>
-                        <td className="p-4">
-                          <div className="flex gap-2">
-                            <button
-                              className="text-primary hover:text-primary/80"
-                              onClick={() => handleEditProduct(product)}
-                              title="Editar"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="text-red-500 hover:text-red-600"
-                              onClick={() => handleDeleteProduct(product.id)}
-                              title="Eliminar"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* NEW PRODUCT MODAL */}
-          <Dialog open={isNewProductModalOpen} onOpenChange={setIsNewProductModalOpen}>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Nuevo Producto</DialogTitle>
-              </DialogHeader>
-
-              {validationError && (
-                <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-start gap-2">
-                  <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm">{validationError}</p>
-                </div>
-              )}
-
-              <div className="space-y-8 py-4">
-                {/* SECCIÓN A: DATOS GENERALES */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold border-b pb-2">A. Datos Generales</h3>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="product-name" className={fieldErrors.name ? "text-red-600" : ""}>
-                      Nombre del Producto *
-                    </Label>
-                    <Input
-                      id="product-name"
-                      placeholder="Ej: Polo Básico"
-                      value={newProductName}
-                      onChange={(e) => {
-                        setNewProductName(e.target.value)
-                        setFieldErrors({ ...fieldErrors, name: false })
-                      }}
-                      className={fieldErrors.name ? "border-red-500 focus-visible:ring-red-500" : ""}
-                    />
-                    {fieldErrors.name && <p className="text-xs text-red-600">Este campo es obligatorio</p>}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="product-description">Descripción (opcional)</Label>
-                    <Textarea
-                      id="product-description"
-                      placeholder="Ej: Polo básico de algodón de alta calidad"
-                      rows={3}
-                      value={newProductDescription}
-                      onChange={(e) => setNewProductDescription(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="product-category" className={fieldErrors.category ? "text-red-600" : ""}>
-                        Categoría *
-                      </Label>
-                      <Select
-                        value={newProductCategory}
-                        onValueChange={(value) => {
-                          setNewProductCategory(value)
-                          setFieldErrors({ ...fieldErrors, category: false })
-                        }}
-                      >
-                        <SelectTrigger
-                          id="product-category"
-                          className={fieldErrors.category ? "border-red-500 focus:ring-red-500" : ""}
-                        >
-                          <SelectValue placeholder="Selecciona" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Polos">Polos</SelectItem>
-                          <SelectItem value="Pantalones">Pantalones</SelectItem>
-                          <SelectItem value="Casacas">Casacas</SelectItem>
-                          <SelectItem value="Chompas">Chompas</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {fieldErrors.category && <p className="text-xs text-red-600">Este campo es obligatorio</p>}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="product-brand" className={fieldErrors.brand ? "text-red-600" : ""}>
-                        Marca *
-                      </Label>
-                      <Select
-                        value={newProductBrand}
-                        onValueChange={(value) => {
-                          setNewProductBrand(value)
-                          setFieldErrors({ ...fieldErrors, brand: false })
-                        }}
-                      >
-                        <SelectTrigger
-                          id="product-brand"
-                          className={fieldErrors.brand ? "border-red-500 focus:ring-red-500" : ""}
-                        >
-                          <SelectValue placeholder="Selecciona" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Nike">Nike</SelectItem>
-                          <SelectItem value="Adidas">Adidas</SelectItem>
-                          <SelectItem value="Propia">Propia</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {fieldErrors.brand && <p className="text-xs text-red-600">Este campo es obligatorio</p>}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className={fieldErrors.images ? "text-red-600" : ""}>Subir Imagen *</Label>
-                    <div
-                      className={`border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer bg-muted/30 ${
-                        fieldErrors.images ? "border-red-500" : ""
-                      }`}
-                    >
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/png,image/jpeg,image/jpg"
-                        onChange={(e) => {
-                          handleImageUpload(e)
-                          setFieldErrors({ ...fieldErrors, images: false })
-                        }}
-                        className="hidden"
-                        id="product-images"
-                      />
-                      <label htmlFor="product-images" className="cursor-pointer">
-                        <Upload className="w-10 h-10 mx-auto mb-2 text-muted-foreground" />
-                        <p className="text-sm text-primary font-medium">
-                          Arrastra y suelta una imagen aquí o haz clic para seleccionar
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">Solo PNG, JPG o JPEG</p>
-                      </label>
-                    </div>
-                    {productImages.length > 0 && (
-                      <p className="text-sm text-muted-foreground">{productImages.length} imagen(es) seleccionada(s)</p>
-                    )}
-                    {fieldErrors.images && <p className="text-xs text-red-600">Debes subir al menos una imagen</p>}
-                  </div>
-                </div>
-
-                {/* SECCIÓN B: DEFINICIÓN DE VARIANTES */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold border-b pb-2">B. Definición de Variantes</h3>
-
-                  <div className="space-y-2">
-                    <Label className={fieldErrors.sizes ? "text-red-600" : ""}>Tallas *</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {sizes.map((size) => (
-                        <button
-                          key={size}
-                          onClick={() => {
-                            toggleSize(size)
-                            setFieldErrors({ ...fieldErrors, sizes: false })
-                            setTimeout(generateVariants, 0)
-                          }}
-                          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                            selectedSizes.includes(size)
-                              ? "bg-blue-600 text-white"
-                              : "bg-muted text-muted-foreground hover:bg-muted/80"
-                          }`}
-                        >
-                          {size}
-                        </button>
-                      ))}
-                    </div>
-                    {fieldErrors.sizes && <p className="text-xs text-red-600">Debes seleccionar al menos una talla</p>}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className={fieldErrors.colors ? "text-red-600" : ""}>Colores *</Label>
-                    <div className="flex flex-wrap gap-3">
-                      {colors.map((color) => {
-                        const colorMap: Record<string, string> = {
-                          Verde: "bg-green-500",
-                          Negro: "bg-black",
-                          Blanco: "bg-white border-2 border-gray-300",
-                          Azul: "bg-blue-500",
-                          Rojo: "bg-red-500",
-                          Amarillo: "bg-yellow-500",
-                          Gris: "bg-gray-500",
-                          Bordo: "bg-red-900",
-                        }
-                        return (
-                          <button
-                            key={color}
-                            onClick={() => {
-                              toggleColor(color)
-                              setFieldErrors({ ...fieldErrors, colors: false })
-                              setTimeout(generateVariants, 0)
-                            }}
-                            className={`w-10 h-10 rounded-full ${colorMap[color] || "bg-gray-400"} transition-transform hover:scale-110 ${
-                              selectedColors.includes(color) ? "ring-4 ring-blue-600 ring-offset-2" : ""
-                            }`}
-                            title={color}
-                          />
-                        )
-                      })}
-                    </div>
-                    {fieldErrors.colors && <p className="text-xs text-red-600">Debes seleccionar al menos un color</p>}
-                  </div>
-                </div>
-
-                {/* SECCIÓN C: INVENTARIO (MATRIZ DE VARIANTES) */}
-                {variants.length > 0 && (
-                  <div className="space-y-4">
-                    <h3 className={`text-lg font-semibold border-b pb-2 ${fieldErrors.variants ? "text-red-600" : ""}`}>
-                      C. Inventario (Matriz de Variantes) *
-                    </h3>
-
-                    {/* Cabecera de Edición Masiva */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <p className="text-sm font-medium mb-3">Edición Masiva</p>
-                      <div className="flex gap-3 items-end">
-                        <div className="flex-1">
-                          <Label htmlFor="bulk-price" className="text-xs">
-                            Precio (S/.)
-                          </Label>
-                          <Input
-                            id="bulk-price"
-                            type="number"
-                            placeholder="0.00"
-                            value={bulkPrice}
-                            onChange={(e) => setBulkPrice(e.target.value)}
-                            step="0.01"
-                          />
-                        </div>
-                        <div className="flex-1">
-                          <Label htmlFor="bulk-stock" className="text-xs">
-                            Stock
-                          </Label>
-                          <Input
-                            id="bulk-stock"
-                            type="number"
-                            placeholder="0"
-                            value={bulkStock}
-                            onChange={(e) => setBulkStock(e.target.value)}
-                          />
-                        </div>
-                        <Button onClick={applyBulkPricing} className="bg-primary">
-                          Aplicar a todos
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Tabla de Variantes */}
-                    <div
-                      className={`border rounded-lg overflow-hidden ${fieldErrors.variants ? "border-red-500" : ""}`}
-                    >
-                      <table className="w-full">
-                        <thead className="bg-muted/50">
-                          <tr>
-                            <th className="text-left p-3 font-medium text-sm">Variante</th>
-                            <th className="text-left p-3 font-medium text-sm">SKU</th>
-                            <th className="text-left p-3 font-medium text-sm">Precio (S/.)</th>
-                            <th className="text-left p-3 font-medium text-sm">Stock</th>
-                            <th className="text-left p-3 font-medium text-sm">Acciones</th>
-                          </tr>
+        {/* --- PRODUCTOS --- */}
+        {activeTab === "products" && (() => {
+             const { paginatedItems, totalPages } = getPaginatedData(products)
+             return (
+                <>
+                <div className="mb-6"><Button className="bg-primary hover:bg-primary/90" onClick={() => { resetForm(); setIsNewProductModalOpen(true) }}><Plus className="w-4 h-4 mr-2" /> Nuevo Producto</Button></div>
+                <Card>
+                    <CardContent className="p-0">
+                    <table className="w-full">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th className="text-left p-4 font-medium text-sm text-muted-foreground uppercase">Imágenes</th>
+                            <SortableHeader label="Producto" sortKey="name" currentConfig={sortConfig} onSort={handleSort} />
+                            <SortableHeader label="Categoría" sortKey="category" currentConfig={sortConfig} onSort={handleSort} />
+                            <SortableHeader label="Precio" sortKey="price" currentConfig={sortConfig} onSort={handleSort} />
+                            <SortableHeader label="Stock" sortKey="stock" currentConfig={sortConfig} onSort={handleSort} />
+                            <th className="text-left p-4 font-medium text-sm text-muted-foreground uppercase">Acciones</th>
+                        </tr>
                         </thead>
-                        <tbody>
-                          {variants.map((variant, index) => (
-                            <tr key={`${variant.size}-${variant.color}`} className="border-t">
-                              <td className="p-3">
-                                <span className="text-sm font-medium">
-                                  {variant.size} - {variant.color}
-                                </span>
-                              </td>
-                              <td className="p-3">
-                                <span className="text-sm text-muted-foreground font-mono">{variant.sku}</span>
-                              </td>
-                              <td className="p-3">
-                                <Input
-                                  type="number"
-                                  value={variant.price || ""}
-                                  onChange={(e) => {
-                                    updateVariant(index, "price", Number.parseFloat(e.target.value) || 0)
-                                    setFieldErrors({ ...fieldErrors, variants: false })
-                                  }}
-                                  placeholder="0.00"
-                                  step="0.01"
-                                  className={`w-24 ${variant.price === 0 && fieldErrors.variants ? "border-red-500" : ""}`}
-                                />
-                              </td>
-                              <td className="p-3">
-                                <Input
-                                  type="number"
-                                  value={variant.stock || ""}
-                                  onChange={(e) => {
-                                    updateVariant(index, "stock", Number.parseInt(e.target.value) || 0)
-                                    setFieldErrors({ ...fieldErrors, variants: false })
-                                  }}
-                                  placeholder="0"
-                                  className={`w-24 ${variant.stock === 0 && fieldErrors.variants ? "border-red-500" : ""}`}
-                                />
-                              </td>
-                              <td className="p-3">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    setVariantToDelete(index)
-                                  }}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </td>
+                        <tbody className="divide-y divide-gray-200">
+                        {paginatedItems.map((p: Product) => (
+                            <tr key={p.id} className="hover:bg-gray-50">
+                            <td className="p-4"><div className="w-12 h-12 bg-muted rounded-md overflow-hidden"><Image src={p.image} alt={p.name} width={48} height={48} className="w-full h-full object-cover" /></div></td>
+                            <td className="p-4 font-medium text-gray-900">{p.name}</td>
+                            <td className="p-4"><span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-xs font-medium">{p.category}</span></td>
+                            <td className="p-4 font-medium text-gray-900">S/ {p.price.toFixed(2)}</td>
+                            <td className="p-4 text-gray-500">{p.stock}</td>
+                            <td className="p-4 flex gap-2">
+                                <Button variant="ghost" size="sm" onClick={() => openEditProduct(p)} className="text-primary hover:text-primary/80"><Pencil className="w-4 h-4" /></Button>
+                                <Button variant="ghost" size="sm" onClick={() => { setItemToDelete({ type: 'product', id: p.id }) }} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
+                            </td>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {fieldErrors.variants && (
-                      <p className="text-xs text-red-600">Todas las variantes deben tener precio y stock mayor a 0</p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Footer with right-aligned buttons */}
-              <div className="flex justify-end gap-3 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  className="px-6 bg-transparent"
-                  onClick={() => {
-                    setIsNewProductModalOpen(false)
-                    setNewProductName("")
-                    setNewProductDescription("")
-                    setNewProductCategory("Polos")
-                    setNewProductBrand("Propia")
-                    setSelectedSizes([])
-                    setSelectedColors([])
-                    setProductImages([])
-                    setVariants([])
-                    setBulkPrice("")
-                    setBulkStock("")
-                    setValidationError("")
-                    setFieldErrors({
-                      name: false,
-                      category: false,
-                      brand: false,
-                      images: false,
-                      sizes: false,
-                      colors: false,
-                      variants: false,
-                    })
-                  }}
-                >
-                  Cancelar
-                </Button>
-                <Button className="px-6 bg-primary hover:bg-primary/90" onClick={handleSaveProduct}>
-                  Guardar Producto
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {/* EDIT PRODUCT MODAL - Same structure as new product modal */}
-          <Dialog open={isEditProductModalOpen} onOpenChange={setIsEditProductModalOpen}>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Editar Producto</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-8 py-4">
-                {/* SECCIÓN A: DATOS GENERALES */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold border-b pb-2">A. Datos Generales</h3>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-product-name">Nombre del Producto</Label>
-                    <Input
-                      id="edit-product-name"
-                      placeholder="Ej: Polo Básico"
-                      value={newProductName}
-                      onChange={(e) => setNewProductName(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-product-description">Descripción</Label>
-                    <Textarea
-                      id="edit-product-description"
-                      placeholder="Ej: Polo básico de algodón de alta calidad"
-                      rows={3}
-                      value={newProductDescription}
-                      onChange={(e) => setNewProductDescription(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-product-category">Categoría</Label>
-                      <Select value={newProductCategory} onValueChange={setNewProductCategory}>
-                        <SelectTrigger id="edit-product-category">
-                          <SelectValue placeholder="Selecciona" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Polos">Polos</SelectItem>
-                          <SelectItem value="Pantalones">Pantalones</SelectItem>
-                          <SelectItem value="Casacas">Casacas</SelectItem>
-                          <SelectItem value="Chompas">Chompas</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-product-brand">Marca</Label>
-                      <Select value={newProductBrand} onValueChange={setNewProductBrand}>
-                        <SelectTrigger id="edit-product-brand">
-                          <SelectValue placeholder="Selecciona" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Nike">Nike</SelectItem>
-                          <SelectItem value="Adidas">Adidas</SelectItem>
-                          <SelectItem value="Propia">Propia</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Subir Imágenes</Label>
-                    <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer bg-muted/30">
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/png,image/jpeg,image/jpg"
-                        onChange={handleImageUpload}
-                        className="hidden"
-                        id="edit-product-images"
-                      />
-                      <label htmlFor="edit-product-images" className="cursor-pointer">
-                        <Upload className="w-10 h-10 mx-auto mb-2 text-muted-foreground" />
-                        <p className="text-sm text-primary font-medium">
-                          Arrastra y suelta una imagen aquí o haz clic para seleccionar
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">Solo PNG, JPG o JPEG</p>
-                      </label>
-                    </div>
-                    {editingProduct?.images && editingProduct.images.length > 0 && (
-                      <div className="flex gap-2 mt-2">
-                        {editingProduct.images.map((img, idx) => (
-                          <div key={idx} className="w-16 h-16 bg-muted rounded-md overflow-hidden">
-                            <Image
-                              src={img || "/placeholder.svg"}
-                              alt={`Product ${idx + 1}`}
-                              width={64}
-                              height={64}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
                         ))}
-                      </div>
-                    )}
-                    {productImages.length > 0 && (
-                      <p className="text-sm text-muted-foreground">
-                        {productImages.length} imagen(es) nueva(s) seleccionada(s)
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* SECCIÓN B: DEFINICIÓN DE VARIANTES */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold border-b pb-2">B. Definición de Variantes</h3>
-
-                  <div className="space-y-2">
-                    <Label>Tallas</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {sizes.map((size) => (
-                        <button
-                          key={size}
-                          onClick={() => {
-                            toggleSize(size)
-                            setTimeout(generateVariants, 0)
-                          }}
-                          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                            selectedSizes.includes(size)
-                              ? "bg-blue-600 text-white"
-                              : "bg-muted text-muted-foreground hover:bg-muted/80"
-                          }`}
-                        >
-                          {size}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Colores</Label>
-                    <div className="flex flex-wrap gap-3">
-                      {colors.map((color) => {
-                        const colorMap: Record<string, string> = {
-                          Verde: "bg-green-500",
-                          Negro: "bg-black",
-                          Blanco: "bg-white border-2 border-gray-300",
-                          Azul: "bg-blue-500",
-                          Rojo: "bg-red-500",
-                          Amarillo: "bg-yellow-500",
-                          Gris: "bg-gray-500",
-                          Bordo: "bg-red-900",
-                        }
-                        return (
-                          <button
-                            key={color}
-                            onClick={() => {
-                              toggleColor(color)
-                              setTimeout(generateVariants, 0)
-                            }}
-                            className={`w-10 h-10 rounded-full ${colorMap[color] || "bg-gray-400"} transition-transform hover:scale-110 ${
-                              selectedColors.includes(color) ? "ring-4 ring-blue-600 ring-offset-2" : ""
-                            }`}
-                            title={color}
-                          />
-                        )
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                {/* SECCIÓN C: INVENTARIO (MATRIZ DE VARIANTES) */}
-                {variants.length > 0 && (
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold border-b pb-2">C. Inventario (Matriz de Variantes)</h3>
-
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <p className="text-sm font-medium mb-3">Edición Masiva</p>
-                      <div className="flex gap-3 items-end">
-                        <div className="flex-1">
-                          <Label htmlFor="edit-bulk-price" className="text-xs">
-                            Precio (S/.)
-                          </Label>
-                          <Input
-                            id="edit-bulk-price"
-                            type="number"
-                            placeholder="0.00"
-                            value={bulkPrice}
-                            onChange={(e) => setBulkPrice(e.target.value)}
-                            step="0.01"
-                          />
-                        </div>
-                        <div className="flex-1">
-                          <Label htmlFor="edit-bulk-stock" className="text-xs">
-                            Stock
-                          </Label>
-                          <Input
-                            id="edit-bulk-stock"
-                            type="number"
-                            placeholder="0"
-                            value={bulkStock}
-                            onChange={(e) => setBulkStock(e.target.value)}
-                          />
-                        </div>
-                        <Button onClick={applyBulkPricing} className="bg-primary">
-                          Aplicar a todos
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="border rounded-lg overflow-hidden">
-                      <table className="w-full">
-                        <thead className="bg-muted/50">
-                          <tr>
-                            <th className="text-left p-3 font-medium text-sm">Variante</th>
-                            <th className="text-left p-3 font-medium text-sm">SKU</th>
-                            <th className="text-left p-3 font-medium text-sm">Precio (S/.)</th>
-                            <th className="text-left p-3 font-medium text-sm">Stock</th>
-                            <th className="text-left p-3 font-medium text-sm">Acciones</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {variants.map((variant, index) => (
-                            <tr key={`${variant.size}-${variant.color}`} className="border-t">
-                              <td className="p-3">
-                                <span className="text-sm font-medium">
-                                  {variant.size} - {variant.color}
-                                </span>
-                              </td>
-                              <td className="p-3">
-                                <span className="text-sm text-muted-foreground font-mono">{variant.sku}</span>
-                              </td>
-                              <td className="p-3">
-                                <Input
-                                  type="number"
-                                  value={variant.price || ""}
-                                  onChange={(e) =>
-                                    updateVariant(index, "price", Number.parseFloat(e.target.value) || 0)
-                                  }
-                                  placeholder="0.00"
-                                  step="0.01"
-                                  className="w-24"
-                                />
-                              </td>
-                              <td className="p-3">
-                                <Input
-                                  type="number"
-                                  value={variant.stock || ""}
-                                  onChange={(e) => updateVariant(index, "stock", Number.parseInt(e.target.value) || 0)}
-                                  placeholder="0"
-                                  className="w-24"
-                                />
-                              </td>
-                              <td className="p-3">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    // This part needs to correctly target the variant to delete for editing
-                                    // For now, let's assume it's intended to remove from the current 'variants' state
-                                    // If it should modify editingProduct.variants, that logic needs adjustment.
-                                    const newVariants = variants.filter((_, i) => i !== index)
-                                    setVariants(newVariants)
-                                  }}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </td>
-                            </tr>
-                          ))}
                         </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
+                    </table>
+                    {totalPages > 1 && <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={(p) => goToPage(p, totalPages)} />}
+                    </CardContent>
+                </Card>
+                </>
+             )
+        })()}
 
-              <div className="flex justify-end gap-3 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  className="px-6 bg-transparent"
-                  onClick={() => {
-                    setIsEditProductModalOpen(false)
-                    setEditingProduct(null)
-                    setNewProductName("")
-                    setNewProductDescription("")
-                    setNewProductCategory("Polos")
-                    setNewProductBrand("Propia")
-                    setNewProductMaterial("Algodón Pima")
-                    setSelectedSizes([])
-                    setSelectedColors([])
-                    setProductImages([])
-                    setVariants([])
-                    setBulkPrice("")
-                    setBulkStock("")
-                  }}
-                >
-                  Cancelar
-                </Button>
-                <Button className="px-6 bg-primary hover:bg-primary/90" onClick={handleSaveEditedProduct}>
-                  Guardar Cambios
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </>
-      ) : activeTab === "categories" ? (
-        <>
-          <div className="mb-6">
-            <Button className="bg-primary hover:bg-primary/90" onClick={() => setIsNewCategoryModalOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nueva Categoría
-            </Button>
-          </div>
+        {/* --- CATEGORIAS --- */}
+        {activeTab === "categories" && (() => {
+            const { paginatedItems, totalPages } = getPaginatedData(categories)
+            return (
+             <>
+             <div className="mb-6"><Button className="bg-primary" onClick={() => { resetForm(); setIsNewCategoryModalOpen(true) }}><Plus className="w-4 h-4 mr-2" /> Nueva Categoría</Button></div>
+             <Card>
+                 <CardContent className="p-0">
+                 <table className="w-full">
+                     <thead className="bg-gray-50 border-b border-gray-200"><tr>
+                         <SortableHeader label="Nombre" sortKey="name" currentConfig={sortConfig} onSort={handleSort} />
+                         <SortableHeader label="Productos" sortKey="productCount" currentConfig={sortConfig} onSort={handleSort} />
+                         <th className="text-left p-4 font-medium text-sm text-muted-foreground uppercase">Acciones</th>
+                     </tr></thead>
+                     <tbody className="divide-y divide-gray-200">
+                     {paginatedItems.map((c: Category) => (
+                         <tr key={c.id} className="hover:bg-gray-50">
+                         <td className="p-4 font-medium flex items-center gap-3 text-gray-900">
+                             <div className="w-10 h-10 bg-muted rounded overflow-hidden flex-shrink-0">
+                                <img src={c.image.startsWith('http') ? c.image : "/placeholder.svg"} alt="" className="w-full h-full object-cover"/>
+                             </div>
+                             {c.name}
+                         </td>
+                         <td className="p-4 text-gray-500">{c.productCount}</td>
+                         <td className="p-4 flex gap-2">
+                             <Button variant="ghost" size="sm" onClick={() => openEditCategory(c)} className="text-primary hover:text-primary/80"><Pencil className="w-4 h-4" /></Button>
+                             <Button variant="ghost" size="sm" onClick={() => { setItemToDelete({ type: 'category', id: c.id }) }} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
+                         </td>
+                         </tr>
+                     ))}
+                     </tbody>
+                 </table>
+                 {totalPages > 1 && <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={(p) => goToPage(p, totalPages)} />}
+                 </CardContent>
+             </Card>
+             </>
+            )
+        })()}
 
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="text-left p-4 font-medium text-sm">Nombre</th>
-                      <th className="text-left p-4 font-medium text-sm">Descripción</th>
-                      <th className="text-left p-4 font-medium text-sm">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {categories.map((category) => (
-                      <tr key={category.id} className="border-t">
-                        <td className="p-4 font-medium">{category.name}</td>
-                        <td className="p-4 text-muted-foreground">{category.description}</td>
-                        <td className="p-4">
-                          <div className="flex gap-2">
-                            <button
-                              className="text-primary hover:text-primary/80"
-                              onClick={() => handleEditCategory(category)}
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="text-red-500 hover:text-red-600"
-                              onClick={() => handleDeleteCategory(category)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+        {/* --- TALLAS --- */}
+        {activeTab === "sizes" && (() => {
+             const { paginatedItems, totalPages } = getPaginatedData(sizesList)
+             return (
+             <>
+             <div className="mb-6"><Button className="bg-primary" onClick={() => { resetForm(); setIsNewSizeModalOpen(true) }}><Plus className="w-4 h-4 mr-2" /> Nueva Talla</Button></div>
+             <Card>
+                 <CardContent className="p-0">
+                 <table className="w-full">
+                     <thead className="bg-gray-50 border-b border-gray-200"><tr>
+                         <SortableHeader label="Nombre" sortKey="name" currentConfig={sortConfig} onSort={()=>{}} />
+                         <th className="text-left p-4 font-medium text-sm text-muted-foreground uppercase">Acciones</th>
+                     </tr></thead>
+                     <tbody className="divide-y divide-gray-200">
+                     {paginatedItems.map((s: Size) => (
+                         <tr key={s.id} className="hover:bg-gray-50">
+                         <td className="p-4 font-medium text-gray-900">{s.name}</td>
+                         <td className="p-4 flex gap-2">
+                             <Button variant="ghost" size="sm" onClick={() => openEditSize(s)} className="text-primary hover:text-primary/80"><Pencil className="w-4 h-4" /></Button>
+                             <Button variant="ghost" size="sm" onClick={() => { setItemToDelete({ type: 'size', id: s.id }) }} className="text-red-500 hover:text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /></Button>
+                         </td>
+                         </tr>
+                     ))}
+                     </tbody>
+                 </table>
+                 {totalPages > 1 && <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={(p) => goToPage(p, totalPages)} />}
+                 </CardContent>
+             </Card>
+             </>
+             )
+        })()}
 
-          <AlertDialog open={showDeleteError} onOpenChange={setShowDeleteError}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5 text-red-500" />
-                  No se puede eliminar
-                </AlertDialogTitle>
-                <AlertDialogDescription>{deleteError}</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogAction onClick={() => setShowDeleteError(false)}>Entendido</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-
-          <Dialog open={isEditCategoryModalOpen} onOpenChange={setIsEditCategoryModalOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Editar Categoría</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-category-name">Nombre</Label>
-                  <Input
-                    id="edit-category-name"
-                    placeholder="Ej: Polos"
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-category-description">Descripción</Label>
-                  <Textarea
-                    id="edit-category-description"
-                    placeholder="Ej: Prendas superiores casuales"
-                    rows={3}
-                    value={newCategoryDescription}
-                    onChange={(e) => setNewCategoryDescription(e.target.value)}
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button variant="outline" onClick={() => setIsEditCategoryModalOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleSaveEditedCategory}>Guardar Cambios</Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {/* NEW CATEGORY MODAL */}
-          <Dialog open={isNewCategoryModalOpen} onOpenChange={setIsNewCategoryModalOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nueva Categoría</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="category-name">Nombre</Label>
-                  <Input
-                    id="category-name"
-                    placeholder="Ej: Polos"
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="category-description">Descripción</Label>
-                  <Textarea
-                    id="category-description"
-                    placeholder="Ej: Prendas superiores casuales"
-                    rows={3}
-                    value={newCategoryDescription}
-                    onChange={(e) => setNewCategoryDescription(e.target.value)}
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button variant="outline" onClick={() => setIsNewCategoryModalOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleSaveNewCategory}>Guardar</Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </>
-      ) : activeTab === "sizes" ? (
-        <>
-          <div className="mb-6">
-            <Button className="bg-primary hover:bg-primary/90" onClick={() => setIsNewSizeModalOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nueva Talla
-            </Button>
-          </div>
-
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="text-left p-4 font-medium text-sm">Nombre</th>
-                      <th className="text-left p-4 font-medium text-sm">Descripción</th>
-                      <th className="text-left p-4 font-medium text-sm">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sizesList.map((size) => (
-                      <tr key={size.id} className="border-t">
-                        <td className="p-4 font-medium">{size.name}</td>
-                        <td className="p-4 text-muted-foreground">{size.description}</td>
-                        <td className="p-4">
-                          <div className="flex gap-2">
-                            <button className="text-primary hover:text-primary/80" onClick={() => handleEditSize(size)}>
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="text-red-500 hover:text-red-600"
-                              onClick={() => handleDeleteSize(size.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* EDIT SIZE MODAL */}
-          <Dialog open={isEditSizeModalOpen} onOpenChange={setIsEditSizeModalOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Editar Talla</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-size-name">Nombre</Label>
-                  <Input
-                    id="edit-size-name"
-                    placeholder="Ej: XL"
-                    value={newSizeName}
-                    onChange={(e) => setNewSizeName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-size-description">Descripción</Label>
-                  <Textarea
-                    id="edit-size-description"
-                    placeholder="Ej: Extra grande"
-                    rows={2}
-                    value={newSizeDescription}
-                    onChange={(e) => setNewSizeDescription(e.target.value)}
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button variant="outline" onClick={() => setIsEditSizeModalOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleSaveEditedSize}>Guardar Cambios</Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {/* NEW SIZE MODAL */}
-          <Dialog open={isNewSizeModalOpen} onOpenChange={setIsNewSizeModalOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nueva Talla</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="size-name">Nombre</Label>
-                  <Input
-                    id="size-name"
-                    placeholder="Ej: XL"
-                    value={newSizeName}
-                    onChange={(e) => setNewSizeName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="size-description">Descripción</Label>
-                  <Textarea
-                    id="size-description"
-                    placeholder="Ej: Extra grande"
-                    rows={2}
-                    value={newSizeDescription}
-                    onChange={(e) => setNewSizeDescription(e.target.value)}
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button variant="outline" onClick={() => setIsNewSizeModalOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleSaveNewSize}>Guardar</Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </>
-      ) : (
-        // Modified the description for 'colors' tab
-        // Removed entire Configuración tab section
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Gestión de Colores</CardTitle>
-              <CardDescription>Agrega o elimina colores disponibles</CardDescription>
-            </CardHeader>
+        {/* --- COLORES --- */}
+        {activeTab === "colors" && (
+            <Card>
+            <CardHeader><CardTitle>Gestión de Colores</CardTitle><CardDescription>Agrega o elimina colores disponibles</CardDescription></CardHeader>
             <CardContent>
-              <div className="flex gap-2 mb-4">
-                <Input
-                  placeholder="Ej: Azul Cielo, Azul Noche..."
-                  value={newColor}
-                  onChange={(e) => setNewColor(e.target.value)}
-                  // Added onKeyDown for Enter key functionality
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleAddColor()
-                    }
-                  }}
-                />
+                <div className="flex gap-2 mb-6">
+                <Input placeholder="Ej: Azul Noche" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="max-w-sm" />
                 <Button onClick={handleAddColor}>Agregar</Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {colors.map((color) => (
-                  <div key={color} className="flex items-center gap-2 px-3 py-1.5 bg-secondary rounded-md">
-                    <span>{color}</span>
-                    <button
-                      onClick={() => handleRemoveColor(color)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                {colorsList.map((c) => (
+                    <div key={c.id} className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-full border text-sm font-medium">
+                    <span>{c.name}</span>
+                    <button onClick={() => { setItemToDelete({ type: 'color', id: c.id }) }} className="text-muted-foreground hover:text-red-600 ml-1"><X className="h-4 w-4" /></button>
+                    </div>
                 ))}
-              </div>
+                </div>
             </CardContent>
-          </Card>
-        </div>
+            </Card>
+        )}
+        </>
       )}
 
-      <Dialog open={variantToDelete !== null} onOpenChange={() => setVariantToDelete(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirmar Eliminación</DialogTitle>
-            <DialogDescription>¿Está seguro de eliminar este registro?</DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-3 pt-4">
-            <Button variant="outline" onClick={() => setVariantToDelete(null)}>
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (variantToDelete !== null) {
-                  deleteVariant(variantToDelete)
-                }
-              }}
-            >
-              Eliminar
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Product Dialog - this dialog was duplicated, consolidating it */}
-      <Dialog
-        open={!!editingProduct}
-        onOpenChange={() => {
-          setEditingProduct(null)
-          // Resetting states related to editing product to prevent carry-over
-          setNewProductName("")
-          setNewProductDescription("")
-          setNewProductCategory("Polos")
-          setNewProductBrand("Propia")
-          setNewProductMaterial("Algodón Pima")
-          setSelectedSizes([])
-          setSelectedColors([])
-          setProductImages([])
-          setVariants([]) // Ensure variants are cleared when closing edit dialog
-          setBulkPrice("")
-          setBulkStock("")
-          setValidationError("") // Clear validation error when closing edit dialog
-          // Reset field errors when closing edit dialog
-          setFieldErrors({
-            name: false,
-            category: false,
-            brand: false,
-            images: false,
-            sizes: false,
-            colors: false,
-            variants: false,
-          })
-        }}
-      >
+      {/* --- MODALES DE CREACIÓN --- */}
+      {/* Modal Nuevo Producto (Manteniendo tu lógica existente) */}
+      <Dialog open={isNewProductModalOpen} onOpenChange={setIsNewProductModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Editar Producto</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-8 py-4">
-            {/* SECCIÓN A: DATOS GENERALES */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold border-b pb-2">A. Datos Generales</h3>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-product-name">Nombre del Producto</Label>
-                <Input
-                  id="edit-product-name"
-                  placeholder="Ej: Polo Básico"
-                  value={newProductName}
-                  onChange={(e) => setNewProductName(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-product-description">Descripción</Label>
-                <Textarea
-                  id="edit-product-description"
-                  placeholder="Ej: Polo básico de algodón de alta calidad"
-                  rows={3}
-                  value={newProductDescription}
-                  onChange={(e) => setNewProductDescription(e.target.value)}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-product-category">Categoría</Label>
-                  <Select value={newProductCategory} onValueChange={setNewProductCategory}>
-                    <SelectTrigger id="edit-product-category">
-                      <SelectValue placeholder="Selecciona" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Polos">Polos</SelectItem>
-                      <SelectItem value="Pantalones">Pantalones</SelectItem>
-                      <SelectItem value="Casacas">Casacas</SelectItem>
-                      <SelectItem value="Chompas">Chompas</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-product-brand">Marca</Label>
-                  <Select value={newProductBrand} onValueChange={setNewProductBrand}>
-                    <SelectTrigger id="edit-product-brand">
-                      <SelectValue placeholder="Selecciona" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Nike">Nike</SelectItem>
-                      <SelectItem value="Adidas">Adidas</SelectItem>
-                      <SelectItem value="Propia">Propia</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Subir Imágenes</Label>
-                <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer bg-muted/30">
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/png,image/jpeg,image/jpg"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                    id="edit-product-images"
-                  />
-                  <label htmlFor="edit-product-images" className="cursor-pointer">
-                    <Upload className="w-10 h-10 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm text-primary font-medium">
-                      Arrastra y suelta una imagen aquí o haz clic para seleccionar
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">Solo PNG, JPG o JPEG</p>
-                  </label>
-                </div>
-                {editingProduct?.images && editingProduct.images.length > 0 && (
-                  <div className="flex gap-2 mt-2">
-                    {editingProduct.images.map((img, idx) => (
-                      <div key={idx} className="w-16 h-16 bg-muted rounded-md overflow-hidden">
-                        <Image
-                          src={img || "/placeholder.svg"}
-                          alt={`Product ${idx + 1}`}
-                          width={64}
-                          height={64}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {productImages.length > 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    {productImages.length} imagen(es) nueva(s) seleccionada(s)
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* SECCIÓN B: DEFINICIÓN DE VARIANTES */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold border-b pb-2">B. Definición de Variantes</h3>
-
-              <div className="space-y-2">
-                <Label>Tallas</Label>
-                <div className="flex flex-wrap gap-2">
-                  {sizes.map((size) => (
-                    <button
-                      key={size}
-                      onClick={() => {
-                        toggleSize(size)
-                        setTimeout(generateVariants, 0) // Re-generate variants after size selection
-                      }}
-                      className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                        selectedSizes.includes(size)
-                          ? "bg-blue-600 text-white"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80"
-                      }`}
-                    >
-                      {size}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Colores</Label>
-                <div className="flex flex-wrap gap-3">
-                  {colors.map((color) => {
-                    const colorMap: Record<string, string> = {
-                      Verde: "bg-green-500",
-                      Negro: "bg-black",
-                      Blanco: "bg-white border-2 border-gray-300",
-                      Azul: "bg-blue-500",
-                      Rojo: "bg-red-500",
-                      Amarillo: "bg-yellow-500",
-                      Gris: "bg-gray-500",
-                      Bordo: "bg-red-900",
-                    }
-                    return (
-                      <button
-                        key={color}
-                        onClick={() => {
-                          toggleColor(color)
-                          setTimeout(generateVariants, 0) // Re-generate variants after color selection
-                        }}
-                        className={`w-10 h-10 rounded-full ${colorMap[color] || "bg-gray-400"} transition-transform hover:scale-110 ${
-                          selectedColors.includes(color) ? "ring-4 ring-blue-600 ring-offset-2" : ""
-                        }`}
-                        title={color}
-                      />
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* SECCIÓN C: INVENTARIO (MATRIZ DE VARIANTES) */}
-            {variants.length > 0 && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold border-b pb-2">C. Inventario (Matriz de Variantes)</h3>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="text-sm font-medium mb-3">Edición Masiva</p>
-                  <div className="flex gap-3 items-end">
-                    <div className="flex-1">
-                      <Label htmlFor="edit-bulk-price" className="text-xs">
-                        Precio (S/.)
-                      </Label>
-                      <Input
-                        id="edit-bulk-price"
-                        type="number"
-                        placeholder="0.00"
-                        value={bulkPrice}
-                        onChange={(e) => setBulkPrice(e.target.value)}
-                        step="0.01"
-                      />
+            <DialogHeader><DialogTitle>Nuevo Producto</DialogTitle></DialogHeader>
+            {validationError && <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded mb-4">{validationError}</div>}
+            <div className="space-y-6 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2"><Label>Nombre *</Label><Input value={newProductName} onChange={(e) => setNewProductName(e.target.value)} /></div>
+                    <div className="space-y-2"><Label>Categoría *</Label>
+                        <Select value={newProductCategory} onValueChange={setNewProductCategory}>
+                            <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                            <SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}</SelectContent>
+                        </Select>
                     </div>
-                    <div className="flex-1">
-                      <Label htmlFor="edit-bulk-stock" className="text-xs">
-                        Stock
-                      </Label>
-                      <Input
-                        id="edit-bulk-stock"
-                        type="number"
-                        placeholder="0"
-                        value={bulkStock}
-                        onChange={(e) => setBulkStock(e.target.value)}
-                      />
-                    </div>
-                    <Button onClick={applyBulkPricing} className="bg-primary">
-                      Aplicar a todos
-                    </Button>
-                  </div>
                 </div>
-
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="text-left p-3 font-medium text-sm">Variante</th>
-                        <th className="text-left p-3 font-medium text-sm">SKU</th>
-                        <th className="text-left p-3 font-medium text-sm">Precio (S/.)</th>
-                        <th className="text-left p-3 font-medium text-sm">Stock</th>
-                        <th className="text-left p-3 font-medium text-sm">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {variants.map((variant, index) => (
-                        <tr key={`${variant.size}-${variant.color}`} className="border-t">
-                          <td className="p-3">
-                            <span className="text-sm font-medium">
-                              {variant.size} - {variant.color}
-                            </span>
-                          </td>
-                          <td className="p-3">
-                            <span className="text-sm text-muted-foreground font-mono">{variant.sku}</span>
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              value={variant.price || ""}
-                              onChange={(e) => updateVariant(index, "price", Number.parseFloat(e.target.value) || 0)}
-                              placeholder="0.00"
-                              step="0.01"
-                              className="w-24"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              value={variant.stock || ""}
-                              onChange={(e) => updateVariant(index, "stock", Number.parseInt(e.target.value) || 0)}
-                              placeholder="0"
-                              className="w-24"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                // Correctly set index for variantToDelete when editing
-                                setVariantToDelete(index) // Re-using the same state for simplicity, but ideally a separate state or logic for edit mode
-                              }}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="space-y-2"><Label>Descripción</Label><Textarea value={newProductDescription} onChange={(e) => setNewProductDescription(e.target.value)} /></div>
+                <div className="space-y-4 border-t pt-4">
+                    <h3 className="font-medium">Variantes</h3>
+                     <div className="space-y-2"><Label>Tallas *</Label><div className="flex flex-wrap gap-2">{sizesList.map(s => (<Button key={s.id} size="sm" variant={selectedSizes.includes(s.id) ? "default" : "outline"} onClick={() => {setSelectedSizes(prev => prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id])}}>{s.name}</Button>))}</div></div>
+                    <div className="space-y-2"><Label>Colores *</Label><div className="flex flex-wrap gap-2">{colorsList.map(c => (<Button key={c.id} size="sm" variant={selectedColors.includes(c.id) ? "default" : "outline"} onClick={() => {setSelectedColors(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])}}>{c.name}</Button>))}</div></div>
+                    
+                    {variants.length > 0 && (
+                        <div className="bg-slate-50 p-4 rounded-lg border mt-4">
+                             <div className="flex gap-2 mb-4 items-end"><div className="flex-1"><Label>Precio Masivo</Label><Input type="number" value={bulkPrice} onChange={e => setBulkPrice(e.target.value)} /></div><div className="flex-1"><Label>Stock Masivo</Label><Input type="number" value={bulkStock} onChange={e => setBulkStock(e.target.value)} /></div><Button onClick={applyBulkPricing}>Aplicar</Button></div>
+                             <div className="space-y-2 max-h-60 overflow-y-auto">
+                                {variants.map((v, idx) => (
+                                    <div key={idx} className="flex gap-4 items-center text-sm border-b pb-2">
+                                        <span className="w-32 font-medium">{v.size} - {v.color}</span>
+                                        <Input className="w-24" type="number" placeholder="Precio" value={v.price} onChange={e => updateVariant(idx, 'price', parseFloat(e.target.value))} />
+                                        <Input className="w-24" type="number" placeholder="Stock" value={v.stock} onChange={e => updateVariant(idx, 'stock', parseInt(e.target.value))} />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button
-              variant="outline"
-              className="px-6 bg-transparent"
-              onClick={() => {
-                setIsEditProductModalOpen(false)
-                setEditingProduct(null)
-                setNewProductName("")
-                setNewProductDescription("")
-                setNewProductCategory("Polos")
-                setNewProductBrand("Propia")
-                setNewProductMaterial("Algodón Pima")
-                setSelectedSizes([])
-                setSelectedColors([])
-                setProductImages([])
-                setVariants([])
-                setBulkPrice("")
-                setBulkStock("")
-              }}
-            >
-              Cancelar
-            </Button>
-            <Button className="px-6 bg-primary hover:bg-primary/90" onClick={handleSaveEditedProduct}>
-              Guardar Cambios
-            </Button>
-          </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t pt-4">
+                <Button variant="outline" onClick={() => setIsNewProductModalOpen(false)}>Cancelar</Button>
+                <Button onClick={handleSaveProduct} disabled={isSaving}>{isSaving ? <Loader2 className="animate-spin" /> : "Guardar Producto"}</Button>
+            </div>
         </DialogContent>
       </Dialog>
+
+      {/* Modal Editar Producto */}
+      <Dialog open={isEditProductModalOpen} onOpenChange={setIsEditProductModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+             <DialogHeader><DialogTitle>Editar Producto</DialogTitle></DialogHeader>
+             <div className="space-y-6 py-4">
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2"><Label>Nombre</Label><Input value={newProductName} onChange={(e) => setNewProductName(e.target.value)} /></div>
+                    <div className="space-y-2"><Label>Categoría</Label>
+                        <Select value={newProductCategory} onValueChange={setNewProductCategory}>
+                            <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                            <SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                    </div>
+                </div>
+                <div className="space-y-2"><Label>Descripción</Label><Textarea value={newProductDescription} onChange={(e) => setNewProductDescription(e.target.value)} /></div>
+                <div className="bg-slate-50 p-4 rounded-lg border">
+                    <h4 className="font-medium mb-2">Variantes Existentes</h4>
+                    {variants.map((v, idx) => (
+                        <div key={idx} className="flex gap-4 items-center text-sm border-b pb-2 mb-2">
+                            <span className="w-32 font-medium">{v.size} - {v.color}</span>
+                            <Input className="w-24" type="number" value={v.price} onChange={e => updateVariant(idx, 'price', parseFloat(e.target.value))} />
+                            <Input className="w-24" type="number" value={v.stock} onChange={e => updateVariant(idx, 'stock', parseInt(e.target.value))} />
+                        </div>
+                    ))}
+                </div>
+             </div>
+             <div className="flex justify-end gap-2 border-t pt-4">
+                <Button variant="outline" onClick={() => setIsEditProductModalOpen(false)}>Cancelar</Button>
+                <Button onClick={handleUpdateProduct} disabled={isSaving}>{isSaving ? <Loader2 className="animate-spin" /> : "Actualizar"}</Button>
+            </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Categoria (Nuevo/Editar) */}
+      <Dialog open={isNewCategoryModalOpen || isEditCategoryModalOpen} onOpenChange={(open) => !open && (isNewCategoryModalOpen ? setIsNewCategoryModalOpen(false) : setIsEditCategoryModalOpen(false))}>
+        <DialogContent>
+            <DialogHeader><DialogTitle>{isNewCategoryModalOpen ? "Nueva" : "Editar"} Categoría</DialogTitle></DialogHeader>
+            <div className="space-y-4 py-4">
+                <div className="space-y-2"><Label>Nombre</Label><Input value={formName} onChange={e => setFormName(e.target.value)} /></div>
+                <div className="space-y-2">
+                    <Label>Imagen de Categoría</Label>
+                    <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary cursor-pointer bg-muted/30 relative">
+                      <input type="file" accept="image/png,image/jpeg,image/jpg" onChange={handleCategoryImageUpload} className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"/>
+                      {categoryImagePreview ? <div className="flex justify-center"><img src={categoryImagePreview} alt="" className="h-32 object-contain"/></div> : <div className="flex flex-col items-center"><Upload className="h-8 w-8 text-muted-foreground mb-2"/><p className="text-sm text-muted-foreground">Clic para subir (JPG/PNG)</p></div>}
+                    </div>
+                    {imageUploadError && <p className="text-red-500 text-xs">{imageUploadError}</p>}
+                </div>
+                <Button className="w-full" onClick={isNewCategoryModalOpen ? handleSaveCategory : handleUpdateCategory} disabled={isSaving}>
+                    {isSaving ? <Loader2 className="animate-spin" /> : (isNewCategoryModalOpen ? "Guardar" : "Actualizar")}
+                </Button>
+            </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Modal Talla (Nuevo/Editar) */}
+      <Dialog open={isNewSizeModalOpen || isEditSizeModalOpen} onOpenChange={(open) => !open && (isNewSizeModalOpen ? setIsNewSizeModalOpen(false) : setIsEditSizeModalOpen(false))}>
+        <DialogContent>
+            <DialogHeader><DialogTitle>{isNewSizeModalOpen ? "Nueva" : "Editar"} Talla</DialogTitle></DialogHeader>
+            <div className="space-y-4 py-4">
+                <div className="space-y-2"><Label>Nombre (Ej: XL)</Label><Input value={formName} onChange={e => setFormName(e.target.value)} /></div>
+                <Button className="w-full" onClick={isNewSizeModalOpen ? handleSaveSize : handleUpdateSize} disabled={isSaving}>
+                    {isSaving ? <Loader2 className="animate-spin" /> : (isNewSizeModalOpen ? "Guardar" : "Actualizar")}
+                </Button>
+            </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Alertas */}
+      <AlertDialog open={!!itemToDelete} onOpenChange={() => setItemToDelete(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader><AlertDialogTitle>¿Estás seguro?</AlertDialogTitle><AlertDialogDescription>Esta acción no se puede deshacer.</AlertDialogDescription></AlertDialogHeader>
+            <AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={confirmDelete} className="bg-red-600">Eliminar</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showDeleteError} onOpenChange={setShowDeleteError}>
+        <AlertDialogContent>
+            <AlertDialogHeader><AlertDialogTitle className="text-red-600 flex gap-2"><AlertCircle className="h-5 w-5"/> Error</AlertDialogTitle><AlertDialogDescription>{deleteError}</AlertDialogDescription></AlertDialogHeader>
+            <AlertDialogFooter><AlertDialogAction onClick={() => setShowDeleteError(false)}>Entendido</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   )
 }
