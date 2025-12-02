@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, Eye, FileText, Check, X, MapPin, Package } from "lucide-react"
+import { Search, Eye, FileText, Check, X, MapPin, Package, ChevronLeft, ChevronRight } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   AlertDialog,
@@ -19,8 +19,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
 
-// 1. ACTUALIZACIÓN DE TIPOS CON TU NUEVA LÓGICA
-type OrderStatus = "PENDIENTE_VALIDACION" | "PENDIENTE_ENVIO" | "ENVIADO" | "RECIBIDO" | "RECHAZADO"
+// 1. Tipos de estado actualizados
+type OrderStatus = "PENDIENTE_VALIDACION" | "PENDIENTE_ENVIO" | "ENVIADO" | "RECIBIDO" | "RECHAZADO" | "REPROGRAMADO"
 
 interface Order {
   id: string
@@ -33,7 +33,7 @@ interface Order {
   address: string
   reference: string
   referencePhone?: string
-  voucherUrl?: string
+  voucherUrls?: string[] // Array de URLs para los comprobantes
 }
 
 interface OrderDetail {
@@ -49,7 +49,11 @@ export default function Orders() {
   const [activeTab, setActiveTab] = useState("pendientes")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null)
-  const [selectedVoucher, setSelectedVoucher] = useState<string | null>(null)
+  
+  // Estado para el voucher ahora soporta array de imágenes
+  const [selectedVoucher, setSelectedVoucher] = useState<string[] | null>(null)
+  const [selectedVoucherImageIndex, setSelectedVoucherImageIndex] = useState(0)
+  
   const [selectedShipping, setSelectedShipping] = useState<string | null>(null)
   
   const [currentOrderDetails, setCurrentOrderDetails] = useState<OrderDetail[]>([])
@@ -71,7 +75,6 @@ export default function Orders() {
     orderId: "",
   })
 
-  // Diálogo para cambiar estados de envío
   const [statusChangeDialog, setStatusChangeDialog] = useState<{
     isOpen: boolean
     orderId: string
@@ -91,19 +94,17 @@ export default function Orders() {
     { id: "todos", label: "Todos" },
   ]
 
-  
-
-  // 2. LÓGICA DE FILTRADO (TABULADORES) CORREGIDA
+  // 2. Lógica de filtrado por Pestañas
   const filteredOrders = orders
     .filter((order) => {
-      if (activeTab === "todos") return true
+      if (activeTab === "todos") {
+        return ["PENDIENTE_VALIDACION", "PENDIENTE_ENVIO", "ENVIADO", "RECIBIDO", "RECHAZADO", "REPROGRAMADO"].includes(order.status)
+      }
       
-      // Tab Pendientes = Solo los que esperan validación del voucher
       if (activeTab === "pendientes") {
         return order.status === "PENDIENTE_VALIDACION"
       }
       
-      // Tab Confirmados = Todo el flujo logístico (Por enviar, Enviado, Recibido)
       if (activeTab === "confirmados") {
         return ["PENDIENTE_ENVIO", "ENVIADO", "RECIBIDO"].includes(order.status)
       }
@@ -121,7 +122,7 @@ export default function Orders() {
         order.phone.includes(searchQuery),
     )
 
-  // 3. CARGA DE PEDIDOS
+  // 3. Cargar Pedidos desde Supabase
   const fetchOrders = async () => {
     setIsLoading(true)
     try {
@@ -132,7 +133,9 @@ export default function Orders() {
           estado_pedido,
           monto_total,
           fecha_creacion,
-          url_voucher_img,
+          comprobantes_pedido (
+            url_comprobante
+          ),
           cliente_final (
             nombre_cliente,
             telefono_cliente,
@@ -153,13 +156,13 @@ export default function Orders() {
           customer: item.cliente_final?.nombre_cliente || "Cliente Desconocido",
           referencePhone: item.cliente_final?.telefono_referencia || "",
           amount: item.monto_total.toFixed(2),
-          // Mapeo directo del estado de la BD
           status: item.estado_pedido as OrderStatus,
           date: new Date(item.fecha_creacion).toLocaleDateString('es-PE'),
           district: item.cliente_final?.distrito || "",
           address: item.cliente_final?.direccion_envio || "",
           reference: item.cliente_final?.referencia_ubicacion || "",
-          voucherUrl: item.url_voucher_img,
+          // Mapeamos el array de comprobantes a un array de strings (URLs)
+          voucherUrls: item.comprobantes_pedido?.map((c: any) => c.url_comprobante) || [],
         }))
         setOrders(formattedOrders)
       }
@@ -212,11 +215,10 @@ export default function Orders() {
     }
   }, [selectedOrder])
 
-  // 4. APROBAR (Pasa a PENDIENTE_ENVIO) O RECHAZAR
+  // Aprobar o Rechazar
   const handleConfirmAction = async () => {
     if (!confirmAction) return
 
-    // CAMBIO CLAVE: Al aprobar, pasa al primer estado del flujo de confirmados
     const newStatus: OrderStatus = confirmAction.action === "aprobar" ? "PENDIENTE_ENVIO" : "RECHAZADO"
 
     try {
@@ -232,8 +234,8 @@ export default function Orders() {
           if (order.id === confirmAction.orderId) {
             setSuccessMessage(
               confirmAction.action === "aprobar" 
-                ? `Pedido #${confirmAction.orderId} validado. Pasa a estado "Por Enviar".`
-                : `Pedido #${confirmAction.orderId} rechazado.`
+                ? `El pedido #${confirmAction.orderId} ha sido aprobado.`
+                : `El pedido #${confirmAction.orderId} ha sido rechazado.`
             )
             setTimeout(() => setSuccessMessage(null), 5000)
             return { ...order, status: newStatus }
@@ -248,7 +250,7 @@ export default function Orders() {
     setConfirmAction(null)
   }
 
-  // 5. CAMBIAR ESTADO DE ENVÍO (Dropdown)
+  // Cambiar Estado Logístico
   const handleTrackingStatusChange = (orderId: string, newStatus: string) => {
     const order = orders.find((o) => o.id === orderId)
     const statusTyped = newStatus as OrderStatus
@@ -291,7 +293,7 @@ export default function Orders() {
     setStatusChangeDialog({ isOpen: false, orderId: "", currentStatus: "PENDIENTE_ENVIO", newStatus: "PENDIENTE_ENVIO" })
   }
 
-  // 6. REVERTIR (Regresa a PENDIENTE_VALIDACION)
+  // Revertir Pedido
   const handleRevertOrder = async () => {
     try {
       const { error } = await supabase
@@ -304,7 +306,7 @@ export default function Orders() {
       setOrders((prevOrders) =>
         prevOrders.map((order) => {
           if (order.id === revertDialog.orderId) {
-            setSuccessMessage(`Pedido #${revertDialog.orderId} revertido a Pendiente de Validación.`)
+            setSuccessMessage(`El pedido #${revertDialog.orderId} ha sido revertido a Pendientes.`)
             setTimeout(() => setSuccessMessage(null), 5000)
             return { ...order, status: "PENDIENTE_VALIDACION" }
           }
@@ -410,8 +412,11 @@ export default function Orders() {
                     variant="outline"
                     size="sm"
                     className="text-primary border-primary hover:bg-primary/10 bg-transparent"
-                    onClick={() => setSelectedVoucher(order.voucherUrl || null)}
-                    disabled={!order.voucherUrl}
+                    onClick={() => {
+                        setSelectedVoucher(order.voucherUrls || [])
+                        setSelectedVoucherImageIndex(0)
+                    }}
+                    disabled={!order.voucherUrls || order.voucherUrls.length === 0}
                   > 
                     <FileText className="h-4 w-4 mr-2" />
                     Ver Voucher
@@ -427,9 +432,6 @@ export default function Orders() {
                   </Button>
                 </div>
 
-                {/* MOSTRAR DROPDOWN DE ESTADO SOLO SI ESTÁ CONFIRMADO 
-                   (Es decir, si está en el flujo logístico)
-                */}
                 {["PENDIENTE_ENVIO", "ENVIADO", "RECIBIDO"].includes(order.status) && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                     <div className="flex items-center justify-between gap-3">
@@ -573,22 +575,104 @@ export default function Orders() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={selectedVoucher !== null} onOpenChange={() => setSelectedVoucher(null)}>
-        <DialogContent className="max-w-lg">
+      {/* Voucher Modal - Gallery with Multiple Images */}
+      <Dialog
+        open={selectedVoucher !== null}
+        onOpenChange={() => {
+          setSelectedVoucher(null)
+          setSelectedVoucherImageIndex(0)
+        }}
+      >
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold">Comprobante de Pago</DialogTitle>
           </DialogHeader>
+
           <div className="mt-4">
-            {selectedVoucher ? (
-              <div className="rounded-lg overflow-hidden border border-border bg-muted">
-                <img src={selectedVoucher} alt="Comprobante de pago" className="w-full h-auto" />
+            {selectedVoucher && selectedVoucher.length > 0 ? (
+              <div className="space-y-4">
+                {/* Main Image Display */}
+                <div className="rounded-lg overflow-hidden border border-border bg-muted relative flex justify-center bg-black/5">
+                  <img
+                    src={selectedVoucher[selectedVoucherImageIndex] || "/placeholder.svg"}
+                    alt={`Comprobante de pago ${selectedVoucherImageIndex + 1}`}
+                    className="w-auto h-auto max-h-[500px] object-contain"
+                  />
+
+                  {/* Image Counter Badge */}
+                  {selectedVoucher.length > 1 && (
+                    <div className="absolute top-4 right-4 bg-black/70 text-white px-3 py-1 rounded-full text-sm font-medium">
+                      {selectedVoucherImageIndex + 1} / {selectedVoucher.length}
+                    </div>
+                  )}
+                </div>
+
+                {/* Thumbnail Navigation */}
+                {selectedVoucher.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {selectedVoucher.map((image, index) => (
+                      <button
+                        key={index}
+                        onClick={() => setSelectedVoucherImageIndex(index)}
+                        className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-all ${
+                          selectedVoucherImageIndex === index
+                            ? "border-primary ring-2 ring-primary/20"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        <img
+                          src={image || "/placeholder.svg"}
+                          alt={`Miniatura ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Navigation Buttons */}
+                {selectedVoucher.length > 1 && (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setSelectedVoucherImageIndex((prev) =>
+                          prev === 0 ? selectedVoucher.length - 1 : prev - 1,
+                        )
+                      }
+                      className="flex-1"
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-2" />
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setSelectedVoucherImageIndex((prev) =>
+                          prev === selectedVoucher.length - 1 ? 0 : prev + 1,
+                        )
+                      }
+                      className="flex-1"
+                    >
+                      Siguiente
+                      <ChevronRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
-                <p className="text-center py-8 text-muted-foreground">No hay imagen de voucher disponible.</p>
+                <p className="text-center py-8 text-muted-foreground">No hay imágenes disponibles.</p>
             )}
           </div>
+
           <div className="mt-4">
-            <Button onClick={() => setSelectedVoucher(null)} className="w-full bg-primary hover:bg-primary/90 text-white">
+            <Button
+              onClick={() => {
+                setSelectedVoucher(null)
+                setSelectedVoucherImageIndex(0)
+              }}
+              className="w-full bg-primary hover:bg-primary/90 text-white"
+            >
               Cerrar
             </Button>
           </div>
@@ -648,7 +732,7 @@ export default function Orders() {
             <AlertDialogTitle>Confirmar Acción</AlertDialogTitle>
             <AlertDialogDescription>
               {confirmAction?.action === "aprobar"
-                ? `¿Estás seguro de aprobar el pedido #${confirmAction.orderId}? Pasará a la sección Confirmados en estado "Por Enviar".`
+                ? `¿Validar el pago del pedido #${confirmAction.orderId}? Pasará a estado "Por Enviar".`
                 : `¿Estás seguro de rechazar el pedido #${confirmAction?.orderId}?`}
             </AlertDialogDescription>
           </AlertDialogHeader>

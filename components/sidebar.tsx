@@ -1,6 +1,6 @@
 "use client"
 
-import { LayoutDashboard, ShoppingCart, Package, Settings, Menu, X , Users} from "lucide-react"
+import { LayoutDashboard, ShoppingCart, Package, Settings, Menu, X, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 // 1. Importamos el componente Image de Next.js
 import Image from "next/image"
@@ -14,10 +14,10 @@ interface SidebarProps {
 
 
 export default function Sidebar({ activePage, setActivePage, isOpen, setIsOpen }: SidebarProps) {
-  const menuItems = [
+const menuItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "orders", label: "Pedidos", icon: ShoppingCart },
-    { id: "customers", label: "Clientes", icon: Users },
+    { id: "customers", label: "Clientes", icon: Users }, 
     { id: "catalog", label: "Inventario", icon: Package },
     { id: "admin", label: "Administración", icon: Settings },
   ]
