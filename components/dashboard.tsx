@@ -7,16 +7,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { 
   DollarSign, Clock, Star, ShoppingBag, Users, 
   Repeat, AlertTriangle, Download, LayoutDashboard, 
-  BarChart3, LineChart, CalendarRange
+  BarChart3, CalendarRange, Loader2
 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from "recharts"
 import { supabase } from "@/lib/supabase"
+// Usamos date-fns para formateo seguro de fechas
+import { format, parseISO } from "date-fns"
+import { es } from "date-fns/locale"
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState("commercial") 
   
-  // Estado para los KPIs (Sin valor inventario)
+  // Estado para los KPIs
   const [kpis, setKpis] = useState({
     ventas_mes: 0,
     pedidos_pendientes: 0,
@@ -30,16 +33,25 @@ export default function Dashboard() {
   const [topProductsData, setTopProductsData] = useState<any[]>([])
   const [salesTrendData, setSalesTrendData] = useState<any[]>([])
 
-  // 1. CÁLCULO EN EL FRONTEND
   useEffect(() => {
     const calculateMetrics = async () => {
       setLoading(true)
       try {
-        // TRAER TABLAS CRUDAS
-        const { data: pedidos } = await supabase.from('pedido').select('*');
-        const { data: clientes } = await supabase.from('cliente_final').select('*');
-        const { data: stockItems } = await supabase.from('variacion_producto').select('*');
+        // 1. TRAER DATOS DE SUPABASE
+        // Pedidos
+        const { data: pedidos } = await supabase.from('pedido').select('*')
         
+        // Clientes
+        const { count: numClientes, data: clientes } = await supabase
+          .from('cliente_final')
+          .select('cliente_final_id', { count: 'exact' })
+
+        // Stock (Variaciones)
+        const { data: stockItems } = await supabase
+          .from('vista_catalogo_simple')
+          .select('stock')
+        
+        // Detalles (para Producto Top)
         const { data: detalles } = await supabase
           .from('detalle_pedido')
           .select(`
@@ -47,59 +59,92 @@ export default function Dashboard() {
             variacion_producto (
               producto ( nombre_producto )
             )
-          `);
+          `)
 
-        // CÁLCULOS
-        const ventasConfirmadas = pedidos?.filter((p: any) => p.estado_pedido === 'Confirmado') || [];
-        const totalVentas = ventasConfirmadas.reduce((sum: number, p: any) => sum + Number(p.monto_total), 0);
-        const numPendientes = pedidos?.filter((p: any) => p.estado_pedido === 'Pendiente').length || 0;
-        const ticketPromedio = ventasConfirmadas.length > 0 ? totalVentas / ventasConfirmadas.length : 0;
+        // 2. PROCESAMIENTO DE DATOS (Lógica de Negocio)
 
-        const itemsBajos = stockItems?.filter((i: any) => i.stock_cantidad_producto < 5).length || 0;
+        // -- Filtrar Ventas Confirmadas (Flujo logístico completo)
+        const ventasConfirmadas = pedidos?.filter((p: any) => 
+          ['PENDIENTE_ENVIO', 'ENVIADO', 'RECIBIDO'].includes(p.estado_pedido)
+        ) || []
 
-        const numClientes = clientes?.length || 0;
-        const clientesConCompra = ventasConfirmadas.map((p: any) => p.cliente_final_id);
-        const clientesUnicos = new Set(clientesConCompra);
-        const recurrentes = clientesConCompra.length - clientesUnicos.size;
+        const totalVentas = ventasConfirmadas.reduce((sum: number, p: any) => sum + Number(p.monto_total), 0)
+        
+        // -- Pedidos por atender (Solo validación pendiente)
+        const numPendientes = pedidos?.filter((p: any) => p.estado_pedido === 'PENDIENTE_VALIDACION').length || 0
+        
+        const ticketPromedio = ventasConfirmadas.length > 0 ? totalVentas / ventasConfirmadas.length : 0
 
-        // Ranking Producto
-        const conteoProductos: Record<string, number> = {};
+        // -- Stock Crítico (< 5 unidades)
+        const itemsBajos = stockItems?.filter((i: any) => i.stock < 20).length || 0
+
+        // -- Clientes Recurrentes
+        // Mapeamos IDs de clientes que han comprado
+        const clientesConCompra = ventasConfirmadas.map((p: any) => p.cliente_final_id).filter(Boolean)
+        
+        // Contamos cuántas veces aparece cada ID
+        const frecuenciaClientes: Record<string, number> = {}
+        clientesConCompra.forEach((id: number) => {
+            frecuenciaClientes[id] = (frecuenciaClientes[id] || 0) + 1
+        })
+        // Filtramos los que tienen > 1 compra
+        const recurrentes = Object.values(frecuenciaClientes).filter(count => count > 1).length
+
+
+        // -- Ranking Producto Estrella
+        const conteoProductos: Record<string, number> = {}
         if (detalles) {
           detalles.forEach((d: any) => {
-            // @ts-ignore
-            const nombre = d.variacion_producto?.producto?.nombre_producto || "Desconocido";
-            conteoProductos[nombre] = (conteoProductos[nombre] || 0) + d.cantidad;
-          });
+            // Navegación segura en caso de datos nulos
+            const nombre = d.variacion_producto?.producto?.nombre_producto || "Desconocido"
+            conteoProductos[nombre] = (conteoProductos[nombre] || 0) + d.cantidad
+          })
         }
+        
         const sortedProducts = Object.entries(conteoProductos)
           .map(([name, ventas]) => ({ name, ventas }))
-          .sort((a, b) => b.ventas - a.ventas);
+          .sort((a, b) => b.ventas - a.ventas)
         
-        const topName = sortedProducts.length > 0 ? sortedProducts[0].name : "N/A";
-        setTopProductsData(sortedProducts.slice(0, 5));
+        const topName = sortedProducts.length > 0 ? sortedProducts[0].name : "N/A"
+        setTopProductsData(sortedProducts.slice(0, 5)) // Top 5
 
-        // Tendencia Mensual
-        const tendenciaMap: Record<string, number> = {};
+
+        // -- Tendencia Mensual (Ordenada Cronológicamente)
+        const tendenciaMap: Record<string, { total: number, mesNum: number }> = {}
+        
         ventasConfirmadas.forEach((p: any) => {
-            const fecha = new Date(p.fecha_confirmacion || p.created_at); 
-            const mes = fecha.toLocaleString('es-ES', { month: 'short' }); 
-            tendenciaMap[mes] = (tendenciaMap[mes] || 0) + Number(p.monto_total);
-        });
-        const tendenciaArray = Object.entries(tendenciaMap).map(([name, total]) => ({ name, total }));
-        setSalesTrendData(tendenciaArray);
+            const fecha = p.fecha_confirmacion ? parseISO(p.fecha_confirmacion) : parseISO(p.created_at)
+            // Clave: "Ene 2024"
+            const mesLabel = format(fecha, 'MMM yyyy', { locale: es })
+            // Clave ordenamiento: 202401 (AñoMes)
+            const mesSortKey = parseInt(format(fecha, 'yyyyMM'))
+            
+            if (!tendenciaMap[mesLabel]) {
+                tendenciaMap[mesLabel] = { total: 0, mesNum: mesSortKey }
+            }
+            tendenciaMap[mesLabel].total += Number(p.monto_total)
+        })
 
+        // Convertir a array y ordenar por el número de mes
+        const tendenciaArray = Object.entries(tendenciaMap)
+            .map(([name, data]) => ({ name, total: data.total, sortKey: data.mesNum }))
+            .sort((a, b) => a.sortKey - b.sortKey)
+
+        setSalesTrendData(tendenciaArray)
+
+        // -- SETEAR ESTADOS FINALES
         setKpis({
             ventas_mes: totalVentas,
             pedidos_pendientes: numPendientes,
             producto_top: topName,
             ticket_promedio: ticketPromedio,
-            total_clientes: numClientes,
-            clientes_recurrentes: recurrentes > 0 ? recurrentes : 0,
+            total_clientes: numClientes || 0,
+            clientes_recurrentes: recurrentes,
             stock_critico: itemsBajos
         })
 
       } catch (error) {
-        console.error("Error calculando dashboard local:", error)
+        console.error("Error calculando dashboard:", error)
       } finally {
         setLoading(false)
       }
@@ -126,6 +171,7 @@ export default function Dashboard() {
     document.body.removeChild(link)
   }
 
+  // Componente de Tarjeta KPI reutilizable
   const KpiCard = ({ title, value, icon: Icon, colorClass, helpText }: any) => (
     <Card className="border-l-4 border-l-transparent hover:border-l-blue-600 transition-all shadow-sm hover:shadow-md">
       <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
@@ -147,7 +193,6 @@ export default function Dashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-3xl font-bold text-slate-900">Dashboard</h2>
-          <p className="text-muted-foreground">Resumen de operaciones PulsoTextil</p>
         </div>
         
         <div className="flex items-center gap-3">
@@ -169,27 +214,29 @@ export default function Dashboard() {
       </div>
 
       {loading ? (
-        <div className="text-center py-20 text-muted-foreground animate-pulse">Calculando datos...</div>
+        <div className="flex justify-center py-20">
+            <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+        </div>
       ) : (
         <>
+          {/* VISTA COMERCIAL (DEFAULT) */}
           {viewMode === 'commercial' && (
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-slate-700 border-b pb-2">Resumen Financiero</h3>
-              {/* SE HA ELIMINADO LA TARJETA DE VALOR INVENTARIO Y AJUSTADO LAS COLUMNAS A 4 */}
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <KpiCard title="Ventas Históricas" value={`S/ ${kpis.ventas_mes.toLocaleString()}`} icon={DollarSign} colorClass="text-emerald-600" helpText="Todo lo confirmado" />
-                <KpiCard title="Pedidos Pendientes" value={kpis.pedidos_pendientes} icon={Clock} colorClass="text-orange-500" helpText="Por atender" />
+                <KpiCard title="Ventas Históricas" value={`S/ ${kpis.ventas_mes.toLocaleString()}`} icon={DollarSign} colorClass="text-emerald-600" helpText="Ingresos confirmados" />
+                <KpiCard title="Pedidos Pendientes" value={kpis.pedidos_pendientes} icon={Clock} colorClass="text-orange-500" helpText="Requieren validación" />
                 <KpiCard title="Ticket Promedio" value={`S/ ${kpis.ticket_promedio.toFixed(2)}`} icon={ShoppingBag} colorClass="text-blue-600" helpText="Gasto por cliente" />
                 <KpiCard title="Producto Estrella" value={kpis.producto_top} icon={Star} colorClass="text-yellow-500" helpText="Más vendido" />
               </div>
               <div className="grid gap-4 md:grid-cols-3">
-                 <div className="col-span-1"><KpiCard title="Alertas Stock" value={kpis.stock_critico} icon={AlertTriangle} colorClass="text-red-600" helpText="Productos < 5" /></div>
+                 <div className="col-span-1"><KpiCard title="Alertas Stock" value={kpis.stock_critico} icon={AlertTriangle} colorClass="text-red-600" helpText="Productos < 20 unid." /></div>
                  <Card className="col-span-2 bg-blue-50 border-blue-100 shadow-sm">
                     <CardHeader><CardTitle className="text-blue-800 text-base">💡 Estado Comercial</CardTitle></CardHeader>
                     <CardContent>
                         <p className="text-sm text-blue-700">
-                            Actualmente tienes <strong>{kpis.pedidos_pendientes} pedidos por atender</strong>. 
-                            Tu producto estrella es <strong>{kpis.producto_top}</strong>.
+                            Tu negocio está en marcha. Actualmente tienes <strong>{kpis.pedidos_pendientes} pedidos</strong> esperando validación. 
+                            Asegúrate de revisar el stock de tus <strong>{kpis.stock_critico} productos en alerta</strong>.
                         </p>
                     </CardContent>
                  </Card>
@@ -197,12 +244,13 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* VISTA CLIENTES */}
           {viewMode === 'customers' && (
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-slate-700 border-b pb-2">Clientes</h3>
               <div className="grid gap-6 md:grid-cols-3">
                 <KpiCard title="Total Clientes" value={kpis.total_clientes} icon={Users} colorClass="text-indigo-600" helpText="Base de datos" />
-                <KpiCard title="Clientes Fieles" value={kpis.clientes_recurrentes} icon={Repeat} colorClass="text-purple-600" helpText="Recompra estimada" />
+                <KpiCard title="Clientes Recurrentes" value={kpis.clientes_recurrentes} icon={Repeat} colorClass="text-purple-600" helpText="Más de 1 compra" />
                 <Card className="bg-gradient-to-br from-white to-indigo-50 shadow-sm">
                     <CardContent className="pt-6">
                         <div className="text-center">
@@ -218,6 +266,7 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* VISTA GRÁFICOS */}
           {viewMode === 'visual' && (
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-slate-700 border-b pb-2">Gráficos</h3>
@@ -227,16 +276,16 @@ export default function Dashboard() {
                   <CardContent className="h-[350px]">
                     {topProductsData.length > 0 ? (
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={topProductsData} layout="vertical" margin={{top: 5, right: 30, left: 100, bottom: 5}}>
+                        <BarChart data={topProductsData} layout="vertical" margin={{top: 5, right: 30, left: 80, bottom: 5}}>
                           <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                          <XAxis type="number" />
-                          <YAxis dataKey="name" type="category" width={150} style={{fontSize: '11px', fontWeight: 'bold'}} />
-                          <Tooltip cursor={{fill: '#f8fafc'}} />
+                          <XAxis type="number" fontSize={12} />
+                          <YAxis dataKey="name" type="category" width={130} style={{fontSize: '11px', fontWeight: '500'}} />
+                          <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{ borderRadius: '8px' }} />
                           <Legend />
-                          <Bar name="Unidades" dataKey="ventas" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={30} />
+                          <Bar name="Unidades" dataKey="ventas" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24} />
                         </BarChart>
                       </ResponsiveContainer>
-                    ) : <div className="h-full flex items-center justify-center text-sm">Sin datos.</div>}
+                    ) : <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Sin datos de ventas aún.</div>}
                   </CardContent>
                 </Card>
 
@@ -247,14 +296,14 @@ export default function Dashboard() {
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={salesTrendData} margin={{top: 20, right: 30, left: 20, bottom: 5}}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <Tooltip cursor={{fill: '#f8fafc'}} formatter={(value) => `S/ ${value}`} />
+                          <XAxis dataKey="name" fontSize={12} />
+                          <YAxis fontSize={12} />
+                          <Tooltip cursor={{fill: '#f8fafc'}} formatter={(value) => `S/ ${Number(value).toLocaleString()}`} contentStyle={{ borderRadius: '8px' }} />
                           <Legend />
                           <Bar name="Ventas (S/)" dataKey="total" fill="#10b981" radius={[4, 4, 0, 0]} barSize={40} />
                         </BarChart>
                       </ResponsiveContainer>
-                    ) : <div className="h-full flex items-center justify-center text-sm">Sin historial.</div>}
+                    ) : <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Sin historial de ventas.</div>}
                   </CardContent>
                 </Card>
               </div>
