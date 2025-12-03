@@ -26,9 +26,6 @@ import { Label } from "@/components/ui/label"
 import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 
-// 1. CAMBIO: Usamos los mismos estados detallados que en Orders
-type OrderStatus = "PENDIENTE_VALIDACION" | "PENDIENTE_ENVIO" | "ENVIADO" | "RECIBIDO" | "RECHAZADO" | "REPROGRAMADO"
-
 interface OrderItem {
   name: string
   quantity: number
@@ -40,8 +37,9 @@ interface Order {
   id: string
   date: string
   total: number
-  status: OrderStatus // CAMBIO: Usamos el tipo detallado
+  status: "pending" | "confirmed" | "rejected"
   items: OrderItem[]
+  voucherUrls: string[] // NUEVO: Array para las URLs de los vouchers
 }
 
 interface Customer {
@@ -69,6 +67,11 @@ export default function Customers() {
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [detailOrder, setDetailOrder] = useState<Order | null>(null)
+  
+  // NUEVOS ESTADOS PARA EL VOUCHER
+  const [selectedVoucher, setSelectedVoucher] = useState<string[] | null>(null)
+  const [selectedVoucherImageIndex, setSelectedVoucherImageIndex] = useState(0)
+
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isSaveConfirmOpen, setIsSaveConfirmOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -90,6 +93,7 @@ export default function Customers() {
   const fetchCustomers = async () => {
     setIsLoading(true)
     try {
+      // MODIFICADO: Agregamos 'comprobantes_pedido (url_comprobante)' a la consulta
       const { data, error } = await supabase
         .from('cliente_final')
         .select(`
@@ -99,6 +103,7 @@ export default function Customers() {
             fecha_creacion,
             monto_total,
             estado_pedido,
+            comprobantes_pedido ( url_comprobante ),
             detalle_pedido (
               cantidad,
               precio_unitario,
@@ -125,8 +130,11 @@ export default function Customers() {
             id: `#${p.pedido_id}`,
             date: new Date(p.fecha_creacion).toLocaleDateString("es-PE"),
             total: p.monto_total,
-            // 2. CAMBIO: Asignamos el estado directo de la BD (haciendo cast)
-            status: p.estado_pedido as OrderStatus,
+            status: p.estado_pedido === 'PENDIENTE_VALIDACION' ? 'pending' 
+                   : p.estado_pedido === 'RECHAZADO' ? 'rejected' 
+                   : 'confirmed',
+            // MODIFICADO: Mapeamos los vouchers
+            voucherUrls: p.comprobantes_pedido?.map((c: any) => c.url_comprobante) || [],
             items: (p.detalle_pedido || []).map((d: any) => ({
               name: d.variacion_producto?.producto?.nombre_producto || "Producto",
               quantity: d.cantidad,
@@ -135,13 +143,8 @@ export default function Customers() {
             }))
           }))
 
-          // Ordenar pedidos del más reciente al más antiguo
-          clientOrders.sort((a, b) => {
-             // Convertimos DD/MM/YYYY a objeto Date para comparar
-             const [dayA, monthA, yearA] = a.date.split('/').map(Number)
-             const [dayB, monthB, yearB] = b.date.split('/').map(Number)
-             return new Date(yearB, monthB - 1, dayB).getTime() - new Date(yearA, monthA - 1, dayA).getTime()
-          })
+          // Ordenamos los pedidos del más reciente al más antiguo para la vista
+          clientOrders.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
           return {
             id: `C${client.cliente_final_id}`,
@@ -220,41 +223,27 @@ export default function Customers() {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)))
   }
 
-  // 3. CAMBIO: Colores para cada estado detallado
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "PENDIENTE_VALIDACION":
+      case "pending":
         return "bg-yellow-100 text-yellow-800 border-yellow-200"
-      case "PENDIENTE_ENVIO":
-        return "bg-blue-100 text-blue-800 border-blue-200"
-      case "ENVIADO":
-        return "bg-orange-100 text-orange-800 border-orange-200"
-      case "RECIBIDO":
+      case "confirmed":
         return "bg-green-100 text-green-800 border-green-200"
-      case "RECHAZADO":
+      case "rejected":
         return "bg-red-100 text-red-800 border-red-200"
-      case "REPROGRAMADO":
-        return "bg-purple-100 text-purple-800 border-purple-200"
       default:
         return "bg-gray-100 text-gray-800 border-gray-200"
     }
   }
 
-  // 4. CAMBIO: Textos amigables para cada estado
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case "PENDIENTE_VALIDACION":
+      case "pending":
         return "Pendiente"
-      case "PENDIENTE_ENVIO":
-        return "Por Enviar"
-      case "ENVIADO":
-        return "Enviado"
-      case "RECIBIDO":
-        return "Recibido"
-      case "RECHAZADO":
+      case "confirmed":
+        return "Confirmado"
+      case "rejected":
         return "Rechazado"
-      case "REPROGRAMADO":
-        return "Reprogramado"
       default:
         return status
     }
@@ -330,7 +319,7 @@ export default function Customers() {
   if (selectedCustomer) {
     return (
       <div className="p-6 md:p-8">
-        <div className="mx-auto">
+        <div className="max-w-7xl mx-auto">
           <Button variant="ghost" onClick={() => setSelectedCustomer(null)} className="mb-6 gap-2">
             <ArrowLeft className="h-4 w-4" />
             Volver al listado
@@ -462,10 +451,26 @@ export default function Customers() {
                       </div>
                     </div>
 
-                    <Button variant="outline" size="sm" onClick={() => setDetailOrder(order)} className="w-full gap-2">
-                      <Eye className="h-4 w-4" />
-                      Ver Detalle Completo
-                    </Button>
+                    {/* MODIFICADO: BOTONES DE ACCIÓN */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setDetailOrder(order)} className="gap-2">
+                        <Eye className="h-4 w-4" />
+                        Ver Detalle
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => {
+                          setSelectedVoucher(order.voucherUrls)
+                          setSelectedVoucherImageIndex(0)
+                        }}
+                        disabled={!order.voucherUrls || order.voucherUrls.length === 0}
+                        className="gap-2"
+                      >
+                        <FileText className="h-4 w-4" />
+                        Ver Voucher
+                      </Button>
+                    </div>
                   </div>
                 )))}
               </div>
@@ -520,6 +525,105 @@ export default function Customers() {
                   </div>
                 </div>
               )}
+            </DialogContent>
+          </Dialog>
+
+          {/* MODAL VOUCHER (GALERÍA) */}
+          <Dialog
+            open={selectedVoucher !== null}
+            onOpenChange={() => {
+              setSelectedVoucher(null)
+              setSelectedVoucherImageIndex(0)
+            }}
+          >
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle className="text-xl font-bold">Comprobante de Pago</DialogTitle>
+              </DialogHeader>
+
+              <div className="mt-4">
+                {selectedVoucher && selectedVoucher.length > 0 ? (
+                  <div className="space-y-4">
+                    <div className="rounded-lg overflow-hidden border border-border bg-muted relative flex justify-center bg-black/5">
+                      <img
+                        src={selectedVoucher[selectedVoucherImageIndex] || "/placeholder.svg"}
+                        alt={`Comprobante de pago ${selectedVoucherImageIndex + 1}`}
+                        className="w-auto h-auto max-h-[500px] object-contain"
+                      />
+
+                      {selectedVoucher.length > 1 && (
+                        <div className="absolute top-4 right-4 bg-black/70 text-white px-3 py-1 rounded-full text-sm font-medium">
+                          {selectedVoucherImageIndex + 1} / {selectedVoucher.length}
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedVoucher.length > 1 && (
+                      <div className="flex gap-2 overflow-x-auto pb-2">
+                        {selectedVoucher.map((image, index) => (
+                          <button
+                            key={index}
+                            onClick={() => setSelectedVoucherImageIndex(index)}
+                            className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-all ${
+                              selectedVoucherImageIndex === index
+                                ? "border-primary ring-2 ring-primary/20"
+                                : "border-border hover:border-primary/50"
+                            }`}
+                          >
+                            <img
+                              src={image || "/placeholder.svg"}
+                              alt={`Miniatura ${index + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedVoucher.length > 1 && (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setSelectedVoucherImageIndex((prev) =>
+                              prev === 0 ? selectedVoucher.length - 1 : prev - 1,
+                            )
+                          }
+                          className="flex-1"
+                        >
+                          <ChevronLeft className="h-4 w-4 mr-2" />
+                          Anterior
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setSelectedVoucherImageIndex((prev) =>
+                              prev === selectedVoucher.length - 1 ? 0 : prev + 1,
+                            )
+                          }
+                          className="flex-1"
+                        >
+                          Siguiente
+                          <ChevronRight className="h-4 w-4 ml-2" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                    <p className="text-center py-8 text-muted-foreground">No hay imágenes disponibles.</p>
+                )}
+              </div>
+
+              <div className="mt-4">
+                <Button
+                  onClick={() => setSelectedVoucher(null)}
+                  className="w-full bg-primary hover:bg-primary/90 text-white"
+                >
+                  Cerrar
+                </Button>
+              </div>
             </DialogContent>
           </Dialog>
 
@@ -630,7 +734,6 @@ export default function Customers() {
     <div className="p-6 md:p-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Clientes</h1>
-  
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
