@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-// 1. Borramos 'Smile' y agregamos 'Image' de Next.js
-import Image from "next/image" 
+import { Loader2, Lock, User } from "lucide-react"
+import Image from "next/image"
 import { supabase } from "@/lib/supabase"
 
 interface LoginProps {
@@ -33,7 +33,7 @@ export default function Login({ onLogin }: LoginProps) {
         .single()
 
       if (error || !data) {
-        setError("El usuario no existe o hubo un error.")
+        setError("Credenciales incorrectas.")
         setLoading(false)
         return
       }
@@ -41,11 +41,11 @@ export default function Login({ onLogin }: LoginProps) {
       if (data.password_hash === password) {
         onLogin()
       } else {
-        setError("Contraseña incorrecta")
+        setError("Contraseña incorrecta.")
       }
 
     } catch (err) {
-      setError("Ocurrió un error inesperado al intentar ingresar.")
+      setError("Error de conexión.")
       console.error(err)
     } finally {
       setLoading(false)
@@ -53,72 +53,156 @@ export default function Login({ onLogin }: LoginProps) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md space-y-8 px-4">
-        <div className="flex flex-col items-center space-y-4">
-          
-          {/* --- AQUÍ ESTÁ EL CAMBIO DEL LOGO --- */}
-          {/* Eliminamos el div azul y el icono Smile */}
-          <div className="relative w-48 h-50 mb-2">
-            <Image 
-              src="/logov2.jpg" // Asegúrate que este sea el nombre en la carpeta public
-              alt="Logo AWANA"
-              fill // Esto hace que la imagen llene el contenedor padre
-              className="object-contain" // Esto evita que el logo se estire o deforme
-              priority // Carga la imagen de inmediato
-            />
-          </div>
-          {/* ---------------------------------- */}
+    // CONTENEDOR PRINCIPAL
+    <div className="w-full min-h-screen grid lg:grid-cols-2 overflow-hidden relative">
+      
+      {/* --- ANIMACIÓN DE HILOS --- */}
+      <style jsx>{`
+        @keyframes weaveMain {
+            0% { transform: translate(-100%, -100%) rotate(35deg); opacity: 0; }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: translate(100vw, 100vh) rotate(35deg); opacity: 0; }
+        }
+        @keyframes weaveCross {
+            0% { transform: translate(100%, -100%) rotate(-35deg); opacity: 0; }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: translate(-100vw, 100vh) rotate(-35deg); opacity: 0; }
+        }
 
-              <p className="text-sm text-gray-600">Accede a tu cuenta para continuar</p>
-        </div>
+        .thread {
+            position: absolute;
+            width: 150vmax; 
+            height: 2px;
+            pointer-events: none;
+            z-index: 20; 
+        }
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+        /* Hilo Dorado Intenso (Para el lado azul) */
+        .thread-gold {
+            background: linear-gradient(90deg, transparent, #B45309, #F59E0B, transparent); 
+            animation: weaveMain 10s infinite linear;
+        }
 
-          <div className="space-y-2">
-            <Label htmlFor="email" className="text-sm font-medium text-gray-700">
-              Usuario
-            </Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="usuario@gmail.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="h-12"
-            />
-          </div>
+        /* Hilo Azul Marino (Para el lado dorado) */
+        .thread-blue {
+            background: linear-gradient(90deg, transparent, #172554, #1E40AF, transparent); 
+            animation: weaveCross 14s infinite linear;
+        }
+      `}</style>
 
-          <div className="space-y-2">
-            <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-              Contraseña
-            </Label>
-            <Input
-              id="password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="h-12"
-            />
-          </div>
-
-          <Button 
-            type="submit" 
-            className="h-12 w-full bg-blue-600 text-base font-medium hover:bg-blue-700"
-            disabled={loading}
-          >
-            {loading ? "Verificando..." : "Ingresar"}
-          </Button>
-        </form>
+      {/* CAPA DE HILOS FLOTANTES */}
+      <div className="absolute inset-0 pointer-events-none z-30">
+         <div className="thread thread-gold" style={{ top: '20%', left: '-10%', animationDelay: '0s' }}></div>
+         <div className="thread thread-blue" style={{ top: '0%', left: '60%', animationDelay: '2s' }}></div>
+         <div className="thread thread-gold" style={{ top: '50%', left: '-10%', animationDelay: '5s' }}></div>
+         <div className="thread thread-blue" style={{ top: '40%', left: '80%', animationDelay: '8s' }}></div>
       </div>
+
+
+      {/* ================= IZQUIERDA: AZUL ACERO CLARO ================= */}
+      <div className="relative flex flex-col justify-center items-center p-10 bg-slate-200 text-slate-900 z-10 border-r border-slate-300">
+        
+        {/* Patrón sutil */}
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.05]"></div>
+        
+        <div className="relative z-20 flex flex-col items-center text-center space-y-6">
+            <div className="relative w-72 h-48 drop-shadow-2xl">
+                {/* IMPORTANTE: Asegúrate de que awana-logo.jpg esté en la carpeta public */}
+                <Image 
+                    src="/awana-logo.jpg" 
+                    alt="Awana Logo" 
+                    fill 
+                    className="object-contain mix-blend-multiply" 
+                    priority
+                />
+            </div>
+            
+            <div className="space-y-3">
+                <h2 className="text-5xl font-bold tracking-tight text-[#1e3a8a] font-serif drop-shadow-sm">
+                  AWANA
+                </h2>
+                <div className="h-1.5 w-24 bg-amber-500 mx-auto rounded-full shadow-sm"></div>
+                <p className="text-lg text-slate-600 font-bold tracking-widest uppercase mt-4">
+                  Gestión Textil Inteligente
+                </p>
+            </div>
+        </div>
+      </div>
+
+
+      {/* ================= DERECHA: DORADO TEXTIL (Nuevo Color) ================= */}
+      {/* Usamos un degradado de ambar medio a ambar un poco más fuerte para dar efecto dorado */}
+      <div className="relative flex items-center justify-center p-8 bg-gradient-to-br from-[#fde68a] to-[#fbbf24] z-10">
+        
+        {/* Mancha de luz para dar volumen */}
+        <div className="absolute w-[600px] h-[600px] bg-white rounded-full blur-3xl opacity-20 top-0 left-0"></div>
+
+        {/* Tarjeta del Formulario */}
+        <div className="w-full max-w-md bg-white/95 backdrop-blur-sm p-10 rounded-2xl shadow-2xl border-2 border-amber-300 relative z-20">
+          
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-bold text-[#1e3a8a]">Bienvenido</h1>
+            <p className="text-slate-500 mt-2 text-sm font-medium">Ingresa tus credenciales para tejer el éxito.</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {error && (
+              <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-700 text-sm font-medium">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-5">
+              <div className="space-y-2 group">
+                <Label htmlFor="email" className="text-[#1e3a8a] font-bold text-xs uppercase tracking-wide">Correo</Label>
+                <div className="relative">
+                    <User className="absolute left-3 top-3.5 h-5 w-5 text-slate-400 group-focus-within:text-[#1e3a8a] transition-colors" />
+                    <Input
+                    id="email"
+                    type="email"
+                    placeholder="usuario@awana.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="pl-10 h-12 bg-slate-50 border-slate-300 text-slate-800 focus:border-[#1e3a8a] focus:ring-[#1e3a8a]/20 rounded-lg transition-all font-medium"
+                    />
+                </div>
+              </div>
+
+              <div className="space-y-2 group">
+                <Label htmlFor="password" className="text-[#1e3a8a] font-bold text-xs uppercase tracking-wide">Contraseña</Label>
+                <div className="relative">
+                    <Lock className="absolute left-3 top-3.5 h-5 w-5 text-slate-400 group-focus-within:text-[#1e3a8a] transition-colors" />
+                    <Input
+                    id="password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="pl-10 h-12 bg-slate-50 border-slate-300 text-slate-800 focus:border-[#1e3a8a] focus:ring-[#1e3a8a]/20 rounded-lg transition-all font-medium"
+                    />
+                </div>
+              </div>
+            </div>
+
+            <Button 
+              type="submit" 
+              className="w-full h-12 text-base bg-[#1e3a8a] hover:bg-[#172554] text-white font-bold tracking-wide shadow-lg shadow-blue-900/30 transition-all transform hover:-translate-y-0.5 rounded-lg"
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="animate-spin mr-2" /> : "INGRESAR AL SISTEMA"}
+            </Button>
+          </form>
+          
+          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+             <p className="text-xs text-slate-400 font-medium">© 2025 Awana. Plataforma segura.</p>
+          </div>
+        </div>
+      </div>
+
     </div>
   )
 }
