@@ -3,76 +3,116 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Updated color scheme with blue primary colors */
+/* --- TEMA AWANA: AZUL ACERO Y DORADO --- */
 :root {
-  --background: oklch(0.98 0.002 250);
-  --foreground: oklch(0.2 0.002 250);
+  /* Fondo General: Un blanco azulado muy sutil (como Slate-50) */
+  --background: oklch(0.97 0.01 250);
+  /* Texto Principal: Azul Noche Profundo (como Slate-900/Blue-950) */
+  --foreground: oklch(0.2 0.05 260);
+  
+  /* Tarjetas: Blanco puro */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.002 250);
+  --card-foreground: oklch(0.2 0.05 260);
+  
+  /* Popovers / Menús: Blanco */
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.2 0.002 250);
-  --primary: oklch(0.45 0.2 240);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.01 240);
-  --secondary-foreground: oklch(0.2 0.002 250);
-  --muted: oklch(0.92 0.01 240);
-  --muted-foreground: oklch(0.5 0.05 240);
-  --accent: oklch(0.5 0.18 240);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.62 0.22 30);
-  --destructive-foreground: oklch(0.95 0.01 30);
-  --border: oklch(0.93 0.01 250);
-  --input: oklch(0.96 0.005 250);
-  --ring: oklch(0.5 0.15 240);
-  --chart-1: oklch(0.6 0.2 240);
-  --chart-2: oklch(0.55 0.18 200);
-  --chart-3: oklch(0.7 0.15 80);
-  --chart-4: oklch(0.65 0.16 350);
-  --chart-5: oklch(0.58 0.19 160);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.96 0.01 240);
-  --sidebar-foreground: oklch(0.2 0.002 250);
-  --sidebar-primary: oklch(0.45 0.2 240);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.92 0.01 240);
-  --sidebar-accent-foreground: oklch(0.2 0.002 250);
-  --sidebar-border: oklch(0.93 0.01 250);
-  --sidebar-ring: oklch(0.5 0.15 240);
+  --popover-foreground: oklch(0.2 0.05 260);
+  
+  /* --- COLOR PRIMARIO (BOTONES Y ACENTOS) --- */
+  /* Azul Profundo (#1e3a8a) - El color de tus botones en el Login */
+  --primary: oklch(0.4 0.15 260); 
+  /* Texto sobre el botón primario: Blanco */
+  --primary-foreground: oklch(0.98 0 0);
+  
+  /* --- COLOR SECUNDARIO --- */
+  /* Dorado Tenue (Amber-100) - Para fondos secundarios o detalles suaves */
+  --secondary: oklch(0.94 0.05 95);
+  /* Texto sobre secundario: Azul Oscuro */
+  --secondary-foreground: oklch(0.25 0.05 260);
+  
+  /* --- OTROS --- */
+  --muted: oklch(0.95 0.01 250);
+  --muted-foreground: oklch(0.5 0.05 250);
+  
+  /* Acento: Un dorado más intenso para hovers o selecciones (#f59e0b) */
+  --accent: oklch(0.95 0.04 95);
+  --accent-foreground: oklch(0.25 0.05 260);
+  
+  --destructive: oklch(0.6 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  
+  /* Bordes: Un gris azulado suave */
+  --border: oklch(0.9 0.02 250);
+  --input: oklch(0.9 0.02 250);
+  
+  /* Anillo de foco: Dorado */
+  --ring: oklch(0.75 0.18 85);
+  
+  /* Gráficos */
+  --chart-1: oklch(0.4 0.15 260); /* Azul */
+  --chart-2: oklch(0.75 0.18 85); /* Dorado */
+  --chart-3: oklch(0.6 0.2 240);
+  --chart-4: oklch(0.9 0.1 90);
+  --chart-5: oklch(0.5 0.1 260);
+  
+  --radius: 0.5rem;
+  
+  /* Sidebar (Menú lateral) - Azul Oscuro para contraste */
+  --sidebar: oklch(0.98 0.01 250);
+  --sidebar-foreground: oklch(0.25 0.05 260);
+  --sidebar-primary: oklch(0.4 0.15 260);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.96 0.03 95); /* Toque dorado suave */
+  --sidebar-accent-foreground: oklch(0.25 0.05 260);
+  --sidebar-border: oklch(0.9 0.02 250);
+  --sidebar-ring: oklch(0.75 0.18 85);
 }
 
+/* MODO OSCURO (Por si decides activarlo, invierte a Fondo Azul Oscuro / Detalles Dorados) */
 .dark {
-  --background: oklch(0.12 0.002 250);
-  --foreground: oklch(0.95 0.005 250);
-  --card: oklch(0.18 0.005 240);
-  --card-foreground: oklch(0.95 0.005 250);
-  --popover: oklch(0.18 0.005 240);
-  --popover-foreground: oklch(0.95 0.005 250);
-  --primary: oklch(0.65 0.22 240);
-  --primary-foreground: oklch(0.12 0.002 250);
-  --secondary: oklch(0.25 0.005 240);
-  --secondary-foreground: oklch(0.95 0.005 250);
-  --muted: oklch(0.3 0.01 240);
-  --muted-foreground: oklch(0.7 0.08 240);
-  --accent: oklch(0.7 0.22 240);
-  --accent-foreground: oklch(0.12 0.002 250);
-  --destructive: oklch(0.62 0.22 30);
-  --destructive-foreground: oklch(0.92 0.01 30);
-  --border: oklch(0.25 0.01 240);
-  --input: oklch(0.22 0.01 240);
-  --ring: oklch(0.6 0.2 240);
-  --chart-1: oklch(0.65 0.22 240);
-  --chart-2: oklch(0.6 0.2 200);
-  --chart-3: oklch(0.75 0.18 80);
-  --chart-4: oklch(0.7 0.2 350);
-  --chart-5: oklch(0.63 0.22 160);
-  --sidebar: oklch(0.15 0.003 240);
-  --sidebar-foreground: oklch(0.95 0.005 250);
-  --sidebar-primary: oklch(0.65 0.22 240);
-  --sidebar-primary-foreground: oklch(0.12 0.002 250);
-  --sidebar-accent: oklch(0.25 0.005 240);
-  --sidebar-accent-foreground: oklch(0.95 0.005 250);
-  --sidebar-border: oklch(0.25 0.01 240);
-  --sidebar-ring: oklch(0.6 0.2 240);
+  --background: oklch(0.15 0.04 260); /* Azul Noche Profundo */
+  --foreground: oklch(0.98 0.01 250); /* Blanco */
+  
+  --card: oklch(0.18 0.04 260);
+  --card-foreground: oklch(0.98 0.01 250);
+  
+  --popover: oklch(0.18 0.04 260);
+  --popover-foreground: oklch(0.98 0.01 250);
+  
+  /* En modo oscuro, el Primario se vuelve DORADO para resaltar */
+  --primary: oklch(0.75 0.18 85); 
+  --primary-foreground: oklch(0.15 0.04 260);
+  
+  --secondary: oklch(0.25 0.05 260);
+  --secondary-foreground: oklch(0.98 0.01 250);
+  
+  --muted: oklch(0.25 0.05 260);
+  --muted-foreground: oklch(0.7 0.05 250);
+  
+  --accent: oklch(0.25 0.05 260);
+  --accent-foreground: oklch(0.98 0.01 250);
+  
+  --destructive: oklch(0.4 0.2 25);
+  --destructive-foreground: oklch(0.98 0.01 250);
+  
+  --border: oklch(0.25 0.05 260);
+  --input: oklch(0.25 0.05 260);
+  --ring: oklch(0.75 0.18 85); /* Dorado */
+  
+  --chart-1: oklch(0.75 0.18 85); /* Dorado */
+  --chart-2: oklch(0.4 0.15 260); /* Azul */
+  --chart-3: oklch(0.6 0.2 240);
+  --chart-4: oklch(0.9 0.1 90);
+  --chart-5: oklch(0.5 0.1 260);
+  
+  --sidebar: oklch(0.12 0.04 260);
+  --sidebar-foreground: oklch(0.98 0.01 250);
+  --sidebar-primary: oklch(0.75 0.18 85);
+  --sidebar-primary-foreground: oklch(0.15 0.04 260);
+  --sidebar-accent: oklch(0.2 0.05 260);
+  --sidebar-accent-foreground: oklch(0.98 0.01 250);
+  --sidebar-border: oklch(0.2 0.05 260);
+  --sidebar-ring: oklch(0.75 0.18 85);
 }
 
 @theme inline {

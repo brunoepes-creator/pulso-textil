@@ -53,10 +53,10 @@ export default function Login({ onLogin }: LoginProps) {
   }
 
   return (
-    // CONTENEDOR PRINCIPAL
+    // CONTENEDOR PRINCIPAL (Relativo para contener los absolutos)
     <div className="w-full min-h-screen grid lg:grid-cols-2 overflow-hidden relative">
       
-      {/* --- ANIMACIÓN DE HILOS --- */}
+      {/* --- ESTILOS CSS --- */}
       <style jsx>{`
         @keyframes weaveMain {
             0% { transform: translate(-100%, -100%) rotate(35deg); opacity: 0; }
@@ -76,24 +76,24 @@ export default function Login({ onLogin }: LoginProps) {
             width: 150vmax; 
             height: 2px;
             pointer-events: none;
-            z-index: 20; 
         }
 
-        /* Hilo Dorado Intenso (Para el lado azul) */
+        /* Hilo Dorado */
         .thread-gold {
             background: linear-gradient(90deg, transparent, #B45309, #F59E0B, transparent); 
             animation: weaveMain 10s infinite linear;
         }
 
-        /* Hilo Azul Marino (Para el lado dorado) */
+        /* Hilo Azul */
         .thread-blue {
             background: linear-gradient(90deg, transparent, #172554, #1E40AF, transparent); 
             animation: weaveCross 14s infinite linear;
         }
       `}</style>
 
-      {/* CAPA DE HILOS FLOTANTES */}
-      <div className="absolute inset-0 pointer-events-none z-30">
+      {/* --- CAPA DE HILOS (Z-INDEX: 20) --- */}
+      {/* Esta capa está por encima de los fondos de las columnas (Z-0) pero debajo del contenido (Z-30) */}
+      <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
          <div className="thread thread-gold" style={{ top: '20%', left: '-10%', animationDelay: '0s' }}></div>
          <div className="thread thread-blue" style={{ top: '0%', left: '60%', animationDelay: '2s' }}></div>
          <div className="thread thread-gold" style={{ top: '50%', left: '-10%', animationDelay: '5s' }}></div>
@@ -101,15 +101,19 @@ export default function Login({ onLogin }: LoginProps) {
       </div>
 
 
-      {/* ================= IZQUIERDA: AZUL ACERO CLARO ================= */}
-      <div className="relative flex flex-col justify-center items-center p-10 bg-slate-200 text-slate-900 z-10 border-r border-slate-300">
+      {/* ================= IZQUIERDA (AZUL ACERO) ================= */}
+      <div className="relative flex flex-col justify-center items-center p-10 text-slate-900 border-r border-slate-300">
         
+        {/* CAPA 0: FONDO DE COLOR (Detrás de los hilos) */}
+        <div className="absolute inset-0 bg-slate-200 z-0"></div>
         {/* Patrón sutil */}
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.05]"></div>
-        
-        <div className="relative z-20 flex flex-col items-center text-center space-y-6">
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.05] z-0"></div>
+        {/* Círculo decorativo */}
+        <div className="absolute w-96 h-96 bg-blue-200 rounded-full blur-3xl opacity-40 -top-10 -left-10 animate-pulse z-0"></div>
+
+        {/* CAPA 3: CONTENIDO (Delante de los hilos) */}
+        <div className="relative z-30 flex flex-col items-center text-center space-y-6">
             <div className="relative w-72 h-48 drop-shadow-2xl">
-                {/* IMPORTANTE: Asegúrate de que awana-logo.jpg esté en la carpeta public */}
                 <Image 
                     src="/awana-logo.jpg" 
                     alt="Awana Logo" 
@@ -132,15 +136,17 @@ export default function Login({ onLogin }: LoginProps) {
       </div>
 
 
-      {/* ================= DERECHA: DORADO TEXTIL (Nuevo Color) ================= */}
-      {/* Usamos un degradado de ambar medio a ambar un poco más fuerte para dar efecto dorado */}
-      <div className="relative flex items-center justify-center p-8 bg-gradient-to-br from-[#fde68a] to-[#fbbf24] z-10">
+      {/* ================= DERECHA (DORADO CHAMPAGNE) ================= */}
+      <div className="relative flex items-center justify-center p-8">
         
-        {/* Mancha de luz para dar volumen */}
-        <div className="absolute w-[600px] h-[600px] bg-white rounded-full blur-3xl opacity-20 top-0 left-0"></div>
+        {/* CAPA 0: FONDO DE COLOR (Detrás de los hilos) */}
+        <div className="absolute inset-0 bg-amber-100 z-0"></div>
+        {/* Mancha dorada */}
+        <div className="absolute w-[500px] h-[500px] bg-amber-200 rounded-full blur-3xl opacity-50 bottom-0 right-0 z-0"></div>
 
-        {/* Tarjeta del Formulario */}
-        <div className="w-full max-w-md bg-white/95 backdrop-blur-sm p-10 rounded-2xl shadow-2xl border-2 border-amber-300 relative z-20">
+        {/* CAPA 3: CONTENIDO (Delante de los hilos) */}
+        {/* La tarjeta tiene z-30 para tapar los hilos que pasen por debajo de ella */}
+        <div className="w-full max-w-md bg-white p-10 rounded-2xl shadow-2xl border-2 border-amber-200 relative z-30">
           
           <div className="mb-8 text-center">
             <h1 className="text-3xl font-bold text-[#1e3a8a]">Bienvenido</h1>
