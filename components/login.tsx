@@ -1,5 +1,5 @@
 "use client"
-
+import bcrypt from "bcryptjs"
 import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, Lock, User } from "lucide-react"
 import Image from "next/image"
 import { supabase } from "@/lib/supabase"
+
 
 interface LoginProps {
   onLogin: () => void
@@ -20,10 +21,12 @@ export default function Login({ onLogin }: LoginProps) {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setLoading(true)
+  
 
     try {
       const { data, error } = await supabase
@@ -33,19 +36,24 @@ export default function Login({ onLogin }: LoginProps) {
         .single()
 
       if (error || !data) {
-        setError("Credenciales incorrectas.")
+        // Por seguridad, el mensaje debe ser genérico
+        setError("Credenciales inválidas.")
         setLoading(false)
         return
       }
 
-      if (data.password_hash === password) {
+      // 2. VERIFICACIÓN SEGURA CON BCRYPT
+      // Comparamos la contraseña que escribió el usuario con el HASH de la BDD
+      const isMatch = await bcrypt.compare(password, data.password_hash)
+
+      if (isMatch) {
         onLogin()
       } else {
-        setError("Contraseña incorrecta.")
+        setError("Credenciales inválidas.")
       }
 
     } catch (err) {
-      setError("Error de conexión.")
+      setError("Ocurrió un error inesperado.")
       console.error(err)
     } finally {
       setLoading(false)
