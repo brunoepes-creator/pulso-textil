@@ -606,7 +606,7 @@ export default function Orders() {
                         </div>
                       </div>
                       <div className="mt-3">
-                        <p className="text-sm text-muted-foreground mb-1">Precio</p>
+                        <p className="text-sm text-muted-foreground mb-1">Precio Unitario</p>
                         <p className="text-xl font-bold text-primary">S/ {product.price}</p>
                       </div>
                     </div>
