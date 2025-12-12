@@ -39,9 +39,9 @@ export default function Home() {
 
   // CONFIGURACIÓN DE TIEMPOS (En milisegundos)
   // 2 minutos para alerta
-  const TIEMPO_ADVERTENCIA = 2 * 60 * 1000 
+  const TIEMPO_ADVERTENCIA = 50000
   // 3 minutos totales para salir (2 min de espera + 1 min de gracia)
-  const TIEMPO_LIMITE_TOTAL = 3 * 60 * 1000 
+  const TIEMPO_LIMITE_TOTAL = 50000
 
   // ==========================================================================
   // 1. LÓGICA DE SESIÓN Y PERSISTENCIA
